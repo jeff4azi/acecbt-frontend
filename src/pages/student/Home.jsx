@@ -27,20 +27,23 @@ function greeting() {
 function getInitials(name) {
   if (!name) return "👋";
   const parts = name.trim().split(/\s+/);
-  if (parts.length >= 2)
-    return (parts[0][0] + parts[1][0]).toUpperCase();
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
   return name.slice(0, 2).toUpperCase();
 }
 
 // ─── Ad Popup Modal (centered, auto-dismiss after duration_seconds) ───────────
 
 function AdPopup({ ads, onClose }) {
+  // Pick one ad at random when the popup first mounts
+  const [ad] = useState(() => {
+    if (!ads?.length) return null;
+    return ads[Math.floor(Math.random() * ads.length)];
+  });
   const [timeLeft, setTimeLeft] = useState(0);
   const [visible, setVisible] = useState(true);
 
   useEffect(() => {
-    if (!ads?.length) return;
-    const ad = ads[0];
+    if (!ad) return;
     const total = Math.max(2, Number(ad.duration_seconds));
     setTimeLeft(total);
     const tick = setInterval(() => {
@@ -55,10 +58,9 @@ function AdPopup({ ads, onClose }) {
       });
     }, 1000);
     return () => clearInterval(tick);
-  }, [ads, onClose]);
+  }, [ad, onClose]);
 
-  if (!ads?.length) return null;
-  const ad = ads[0];
+  if (!ad) return null;
   const hasLink = !!ad.link_url && ad.link_url.trim().length > 0;
   const total = Math.max(2, Number(ad.duration_seconds));
   const progress = ((total - timeLeft) / total) * 100;
@@ -267,10 +269,14 @@ export default function Home() {
             api.get("/history").catch(() => ({ data: [] })),
           );
         } else {
-          reqs.push(Promise.resolve({ data: [] }), Promise.resolve({ data: [] }));
+          reqs.push(
+            Promise.resolve({ data: [] }),
+            Promise.resolve({ data: [] }),
+          );
         }
 
-        const [adsRes, quizzesRes, unlockedRes, historyRes] = await Promise.all(reqs);
+        const [adsRes, quizzesRes, unlockedRes, historyRes] =
+          await Promise.all(reqs);
         if (cancelled) return;
 
         const activeAds = (adsRes.data ?? []).filter((a) => a.is_active);
