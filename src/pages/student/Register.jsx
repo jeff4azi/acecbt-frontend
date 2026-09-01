@@ -40,7 +40,7 @@ export default function Register() {
 
     setLoading(true);
 
-    const { data, error: authError } = await supabase.auth.signUp({
+    const { error: authError } = await supabase.auth.signUp({
       email,
       password,
       options: { data: { full_name: fullName } },
@@ -52,14 +52,8 @@ export default function Register() {
       return;
     }
 
-    // Insert profile row
-    if (data.user) {
-      await supabase.from("profiles").insert({
-        id: data.user.id,
-        full_name: fullName,
-        email,
-      });
-    }
+    // Profile row is created automatically by the handle_new_user trigger
+    // on auth.users — no manual insert needed here.
 
     setLoading(false);
     setSuccess(true);
