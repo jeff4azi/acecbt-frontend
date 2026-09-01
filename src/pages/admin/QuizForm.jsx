@@ -4,6 +4,7 @@ import {
   ClipboardCopy,
   Check,
   Trash2,
+  Pencil,
   Plus,
   X,
   ChevronDown,
@@ -69,17 +70,27 @@ function blankForm() {
 
 // ─── Question Card ────────────────────────────────────────────────────────────
 
-function QuestionCard({ q, index, onDelete }) {
+function QuestionCard({ q, index, onDelete, onEdit }) {
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
       <div className="flex items-start justify-between gap-2 mb-2">
         <p className="text-xs font-bold text-accent uppercase">Q{index + 1}</p>
-        <button
-          onClick={onDelete}
-          className="text-red-400 hover:text-red-600 p-1 rounded-lg hover:bg-red-50 transition"
-        >
-          <Trash2 size={14} />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={onEdit}
+            className="text-primary hover:text-primary-dark p-1 rounded-lg hover:bg-primary/10 transition"
+            title="Edit question"
+          >
+            <Pencil size={14} />
+          </button>
+          <button
+            onClick={onDelete}
+            className="text-red-400 hover:text-red-600 p-1 rounded-lg hover:bg-red-50 transition"
+            title="Delete question"
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
       </div>
       <p className="text-sm text-gray-800 font-medium mb-3 line-clamp-2">
         {q.question_text}
@@ -108,12 +119,64 @@ function QuestionCard({ q, index, onDelete }) {
 }
 
 // ─── Manual Form ──────────────────────────────────────────────────────────────
+// Props:
+//   onAdd(q)          — called when adding a brand-new question
+//   onUpdate(q)       — called when saving edits to an existing question
+//   editingQuestion   — if set, the form is in edit mode (pre-filled with this question)
+//   onCancelEdit()    — called when user clicks Cancel while editing
+//   saving            — disables submit while quiz is saving
+//   formRef           — ref attached to the form wrapper for scroll-into-view
 
-function ManualForm({ onAdd, saving }) {
-  const [form, setForm] = useState(blankForm());
+function ManualForm({
+  onAdd,
+  onUpdate,
+  editingQuestion,
+  onCancelEdit,
+  saving,
+  formRef,
+}) {
+  const isEditMode = Boolean(editingQuestion);
+
+  // Build initial form state from an existing question (for edit) or blank
+  function buildFormFromQuestion(q) {
+    return {
+      question_text: q.question_text ?? "",
+      question_image_url: q.question_image_url ?? null,
+      question_image_preview: q.question_image_url ?? null, // show existing URL as preview
+      _questionFile: null,
+      options: (q.options ?? []).map((opt) => ({
+        id: makeId(),
+        text: opt.text ?? "",
+        image_url: opt.image_url ?? null,
+        image_preview: opt.image_url ?? null, // show existing URL as preview
+        _file: null,
+      })),
+      correct_option_index: q.correct_option_index ?? 0,
+      explanation: q.explanation ?? "",
+    };
+  }
+
+  const [form, setForm] = useState(() =>
+    isEditMode ? buildFormFromQuestion(editingQuestion) : blankForm(),
+  );
   const [qDragOver, setQDragOver] = useState(false);
+  const [highlight, setHighlight] = useState(isEditMode); // ring flash on edit prefill
   const qImgRef = useRef();
   const optImgRefs = useRef([]);
+
+  // When editingQuestion changes (new edit target), re-prefill the form
+  useEffect(() => {
+    if (editingQuestion) {
+      setForm(buildFormFromQuestion(editingQuestion));
+      setHighlight(true);
+      const timer = setTimeout(() => setHighlight(false), 1200);
+      return () => clearTimeout(timer);
+    } else {
+      setForm(blankForm());
+      setHighlight(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingQuestion]);
 
   function applyQuestionFile(file) {
     if (!file) return;
@@ -134,6 +197,7 @@ function ManualForm({ onAdd, saving }) {
     setForm((f) => ({
       ...f,
       _questionFile: null,
+      question_image_url: null,
       question_image_preview: null,
     }));
     if (qImgRef.current) qImgRef.current.value = "";
@@ -165,7 +229,12 @@ function ManualForm({ onAdd, saving }) {
     e.stopPropagation();
     setForm((f) => {
       const opts = [...f.options];
-      opts[idx] = { ...opts[idx], _file: null, image_preview: null };
+      opts[idx] = {
+        ...opts[idx],
+        _file: null,
+        image_url: null,
+        image_preview: null,
+      };
       return { ...f, options: opts };
     });
     if (optImgRefs.current?.[idx]) optImgRefs.current[idx].value = "";
@@ -186,10 +255,7 @@ function ManualForm({ onAdd, saving }) {
     });
   }
 
-  function handleSubmit(e) {
-    e.preventDefault();
-    if (!form.question_text.trim()) return;
-    onAdd({ ...form, id: makeId() });
+  function resetForm() {
     setForm(blankForm());
     if (qImgRef.current) qImgRef.current.value = "";
     (optImgRefs.current || []).forEach((r) => {
@@ -197,226 +263,279 @@ function ManualForm({ onAdd, saving }) {
     });
   }
 
+  function handleSubmit(e) {
+    e.preventDefault();
+    if (!form.question_text.trim()) return;
+    if (isEditMode) {
+      onUpdate({ ...editingQuestion, ...form });
+    } else {
+      onAdd({ ...form, id: makeId() });
+      resetForm();
+    }
+  }
+
+  function handleCancel() {
+    resetForm();
+    onCancelEdit?.();
+  }
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Question Text
-        </label>
-        <textarea
-          required
-          rows={3}
-          value={form.question_text}
-          onChange={(e) =>
-            setForm((f) => ({ ...f, question_text: e.target.value }))
-          }
-          placeholder="Type the question here…"
-          className="w-full px-4 py-3 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm text-gray-800 resize-none"
-        />
-      </div>
-
-      {/* Question Image — drag & drop zone */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Question Image (optional)
-        </label>
-        <div
-          onClick={() => qImgRef.current.click()}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setQDragOver(true);
-          }}
-          onDragLeave={() => setQDragOver(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setQDragOver(false);
-            const file = e.dataTransfer.files?.[0];
-            applyQuestionFile(file);
-          }}
-          className={`relative flex items-center justify-center w-full rounded-xl border-2 border-dashed cursor-pointer transition-colors overflow-hidden
-            ${
-              qDragOver
-                ? "border-primary bg-primary/5"
-                : form.question_image_preview
-                  ? "border-gray-200 bg-gray-50"
-                  : "border-accent-light hover:border-primary/50 hover:bg-primary/5 bg-white"
-            }`}
-          style={{ minHeight: form.question_image_preview ? "auto" : "120px" }}
-        >
-          <input
-            ref={qImgRef}
-            type="file"
-            accept="image/*"
-            onChange={handleQuestionImage}
-            className="hidden"
-          />
-          {form.question_image_preview ? (
-            <>
-              <img
-                src={form.question_image_preview}
-                alt="question preview"
-                className="w-full h-40 object-cover"
-              />
-              <button
-                type="button"
-                onClick={clearQuestionImage}
-                className="absolute top-2 left-2 w-7 h-7 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-sm"
-                title="Remove image"
-              >
-                <X size={14} />
-              </button>
-              <span className="absolute bottom-2 right-2 bg-black/50 text-white text-xs px-2 py-0.5 rounded-lg backdrop-blur-sm">
-                Click to change
-              </span>
-            </>
-          ) : (
-            <div className="flex flex-col items-center justify-center gap-2 py-6">
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                <svg
-                  className="w-5 h-5 text-primary"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={1.5}
-                    d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                  />
-                </svg>
-              </div>
-              <p className="text-sm font-medium text-gray-700">
-                {qDragOver ? "Drop here" : "Click or drag & drop image"}
-              </p>
-              <p className="text-xs text-gray-400">
-                PNG/JPG/WEBP — auto-compressed
-              </p>
-            </div>
-          )}
+    <div
+      ref={formRef}
+      className={`rounded-xl transition-all duration-300 ${
+        highlight ? "ring-2 ring-primary ring-offset-2" : ""
+      }`}
+    >
+      {isEditMode && (
+        <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
+          <p className="text-sm font-semibold text-primary flex items-center gap-1.5">
+            <Pencil size={14} />
+            Editing question
+          </p>
+          <button
+            type="button"
+            onClick={handleCancel}
+            className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
+          >
+            <X size={13} /> Cancel edit
+          </button>
         </div>
-      </div>
-
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <label className="text-sm font-medium text-gray-700">
-            Answer Options
+      )}
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Question Text
           </label>
-          {form.options.length < 6 && (
-            <button
-              type="button"
-              onClick={addOption}
-              className="text-xs text-primary hover:underline flex items-center gap-1"
-            >
-              <Plus size={13} /> Add option
-            </button>
-          )}
+          <textarea
+            required
+            rows={3}
+            value={form.question_text}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, question_text: e.target.value }))
+            }
+            placeholder="Type the question here…"
+            className="w-full px-4 py-3 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm text-gray-800 resize-none"
+          />
         </div>
-        <div className="space-y-3">
-          {form.options.map((opt, idx) => (
-            <div key={opt.id} className="flex items-start gap-2">
-              <input
-                type="radio"
-                name="correct_option"
-                checked={form.correct_option_index === idx}
-                onChange={() =>
-                  setForm((f) => ({ ...f, correct_option_index: idx }))
-                }
-                className="mt-3 accent-primary shrink-0"
-                title="Mark as correct"
-              />
-              <div className="flex-1 space-y-2">
-                <input
-                  type="text"
-                  placeholder={`Option ${String.fromCharCode(65 + idx)}`}
-                  value={opt.text}
-                  onChange={(e) => handleOptionText(idx, e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-sm"
+
+        {/* Question Image — drag & drop zone */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Question Image (optional)
+          </label>
+          <div
+            onClick={() => qImgRef.current.click()}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setQDragOver(true);
+            }}
+            onDragLeave={() => setQDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setQDragOver(false);
+              const file = e.dataTransfer.files?.[0];
+              applyQuestionFile(file);
+            }}
+            className={`relative flex items-center justify-center w-full rounded-xl border-2 border-dashed cursor-pointer transition-colors overflow-hidden
+              ${
+                qDragOver
+                  ? "border-primary bg-primary/5"
+                  : form.question_image_preview
+                    ? "border-gray-200 bg-gray-50"
+                    : "border-accent-light hover:border-primary/50 hover:bg-primary/5 bg-white"
+              }`}
+            style={{
+              minHeight: form.question_image_preview ? "auto" : "120px",
+            }}
+          >
+            <input
+              ref={qImgRef}
+              type="file"
+              accept="image/*"
+              onChange={handleQuestionImage}
+              className="hidden"
+            />
+            {form.question_image_preview ? (
+              <>
+                <img
+                  src={form.question_image_preview}
+                  alt="question preview"
+                  className="w-full h-40 object-cover"
                 />
-                <div className="flex items-center gap-2 flex-wrap">
-                  <label className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary-dark cursor-pointer bg-primary/10 hover:bg-primary/20 px-3 py-1.5 rounded-lg transition">
-                    <svg
-                      className="w-3.5 h-3.5"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                      />
-                    </svg>
-                    Option image
-                    <input
-                      ref={(el) => (optImgRefs.current[idx] = el)}
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) =>
-                        handleOptionImage(idx, e.target.files[0])
-                      }
-                      className="hidden"
-                    />
-                  </label>
-                  {opt.image_preview ? (
-                    <div className="relative">
-                      <img
-                        src={opt.image_preview}
-                        alt={`${String.fromCharCode(65 + idx)} preview`}
-                        className="h-16 w-20 object-cover rounded-lg border border-gray-200"
-                      />
-                      <button
-                        type="button"
-                        onClick={(e) => clearOptionImage(idx, e)}
-                        className="absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-sm"
-                        title="Remove image"
-                      >
-                        <X size={11} />
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-              {form.options.length > 2 && (
                 <button
                   type="button"
-                  onClick={() => removeOption(idx)}
-                  className="mt-2.5 text-red-400 hover:text-red-600 shrink-0"
+                  onClick={clearQuestionImage}
+                  className="absolute top-2 left-2 w-7 h-7 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-sm"
+                  title="Remove image"
                 >
-                  <X size={16} />
+                  <X size={14} />
                 </button>
-              )}
-            </div>
-          ))}
+                <span className="absolute bottom-2 right-2 bg-black/50 text-white text-xs px-2 py-0.5 rounded-lg backdrop-blur-sm">
+                  Click to change
+                </span>
+              </>
+            ) : (
+              <div className="flex flex-col items-center justify-center gap-2 py-6">
+                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                  <svg
+                    className="w-5 h-5 text-primary"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={1.5}
+                      d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                    />
+                  </svg>
+                </div>
+                <p className="text-sm font-medium text-gray-700">
+                  {qDragOver ? "Drop here" : "Click or drag & drop image"}
+                </p>
+                <p className="text-xs text-gray-400">
+                  PNG/JPG/WEBP — auto-compressed
+                </p>
+              </div>
+            )}
+          </div>
         </div>
-        <p className="text-xs text-gray-400 mt-2">
-          Select the radio button next to the correct answer. You can add an
-          image for each option in place of (or alongside) the text.
-        </p>
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Explanation (optional)
-        </label>
-        <textarea
-          rows={2}
-          value={form.explanation}
-          onChange={(e) =>
-            setForm((f) => ({ ...f, explanation: e.target.value }))
-          }
-          placeholder="Brief explanation of the correct answer…"
-          className="w-full px-4 py-3 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm resize-none"
-        />
-      </div>
-      <button
-        type="submit"
-        disabled={saving}
-        className="w-full bg-primary hover:bg-primary-dark disabled:opacity-60 text-white font-semibold py-3 rounded-xl text-sm transition"
-      >
-        Add Question
-      </button>
-    </form>
+
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-sm font-medium text-gray-700">
+              Answer Options
+            </label>
+            {form.options.length < 6 && (
+              <button
+                type="button"
+                onClick={addOption}
+                className="text-xs text-primary hover:underline flex items-center gap-1"
+              >
+                <Plus size={13} /> Add option
+              </button>
+            )}
+          </div>
+          <div className="space-y-3">
+            {form.options.map((opt, idx) => (
+              <div key={opt.id} className="flex items-start gap-2">
+                <input
+                  type="radio"
+                  name="correct_option"
+                  checked={form.correct_option_index === idx}
+                  onChange={() =>
+                    setForm((f) => ({ ...f, correct_option_index: idx }))
+                  }
+                  className="mt-3 accent-primary shrink-0"
+                  title="Mark as correct"
+                />
+                <div className="flex-1 space-y-2">
+                  <input
+                    type="text"
+                    placeholder={`Option ${String.fromCharCode(65 + idx)}`}
+                    value={opt.text}
+                    onChange={(e) => handleOptionText(idx, e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-sm"
+                  />
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <label className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary-dark cursor-pointer bg-primary/10 hover:bg-primary/20 px-3 py-1.5 rounded-lg transition">
+                      <svg
+                        className="w-3.5 h-3.5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                        />
+                      </svg>
+                      Option image
+                      <input
+                        ref={(el) => (optImgRefs.current[idx] = el)}
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) =>
+                          handleOptionImage(idx, e.target.files[0])
+                        }
+                        className="hidden"
+                      />
+                    </label>
+                    {opt.image_preview ? (
+                      <div className="relative">
+                        <img
+                          src={opt.image_preview}
+                          alt={`${String.fromCharCode(65 + idx)} preview`}
+                          className="h-16 w-20 object-cover rounded-lg border border-gray-200"
+                        />
+                        <button
+                          type="button"
+                          onClick={(e) => clearOptionImage(idx, e)}
+                          className="absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-sm"
+                          title="Remove image"
+                        >
+                          <X size={11} />
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+                {form.options.length > 2 && (
+                  <button
+                    type="button"
+                    onClick={() => removeOption(idx)}
+                    className="mt-2.5 text-red-400 hover:text-red-600 shrink-0"
+                  >
+                    <X size={16} />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-gray-400 mt-2">
+            Select the radio button next to the correct answer. You can add an
+            image for each option in place of (or alongside) the text.
+          </p>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Explanation (optional)
+          </label>
+          <textarea
+            rows={2}
+            value={form.explanation}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, explanation: e.target.value }))
+            }
+            placeholder="Brief explanation of the correct answer…"
+            className="w-full px-4 py-3 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm resize-none"
+          />
+        </div>
+
+        <div className="flex gap-3">
+          {isEditMode && (
+            <button
+              type="button"
+              onClick={handleCancel}
+              className="flex-1 border border-gray-200 text-gray-600 hover:bg-gray-50 font-semibold py-3 rounded-xl text-sm transition"
+            >
+              Cancel
+            </button>
+          )}
+          <button
+            type="submit"
+            disabled={saving}
+            className="flex-1 bg-primary hover:bg-primary-dark disabled:opacity-60 text-white font-semibold py-3 rounded-xl text-sm transition"
+          >
+            {isEditMode ? "Update Question" : "Add Question"}
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 
@@ -610,6 +729,8 @@ export default function QuizForm() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [saveOk, setSaveOk] = useState(false);
+  const [editingQuestion, setEditingQuestion] = useState(null); // { question, source: 'existing'|'pending', idx }
+  const manualFormRef = useRef(null);
 
   // Load existing quiz when editing
   useEffect(() => {
@@ -718,6 +839,79 @@ export default function QuizForm() {
         // interceptor handles
       } else {
         setSaveError(err.response?.data?.error ?? "Failed to save quiz.");
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // ── Start editing a question ──────────────────────────────────────────────
+
+  function startEditing(question, source, idx) {
+    setQuestionTab("manual"); // switch to manual tab
+    setShowQuestions(true); // make sure section is open
+    setEditingQuestion({ question, source, idx });
+    // Scroll form into view after state settles
+    setTimeout(() => {
+      manualFormRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }, 60);
+  }
+
+  // ── Update a question (edit save) ────────────────────────────────────────
+
+  async function handleUpdateQuestion(updated) {
+    if (!editingQuestion) return;
+    const { source, idx } = editingQuestion;
+
+    if (source === "pending") {
+      // Just update local state — no API call yet
+      setQuestions((prev) =>
+        prev.map((q, i) => (i === idx ? { ...q, ...updated } : q)),
+      );
+      setEditingQuestion(null);
+      return;
+    }
+
+    // source === 'existing' — call the API
+    setSaving(true);
+    try {
+      // Upload any new images
+      let questionImageUrl = updated.question_image_url ?? null;
+      if (updated._questionFile) {
+        questionImageUrl = await uploadImage(
+          updated._questionFile,
+          "question-images",
+        );
+      }
+
+      const options = await Promise.all(
+        updated.options.map(async (opt) => {
+          let imageUrl = opt.image_url ?? null;
+          if (opt._file)
+            imageUrl = await uploadImage(opt._file, "option-images");
+          return { text: opt.text, image_url: imageUrl };
+        }),
+      );
+
+      const res = await api.patch(`/questions/${updated.id}`, {
+        question_text: updated.question_text,
+        question_image_url: questionImageUrl,
+        options,
+        correct_option_index: updated.correct_option_index,
+        explanation: updated.explanation || null,
+      });
+
+      setExistingQs((prev) =>
+        prev.map((q) => (q.id === updated.id ? res.data : q)),
+      );
+      setEditingQuestion(null);
+    } catch (err) {
+      const status = err?.response?.status;
+      if (status !== 401 && status !== 403) {
+        setSaveError(err.response?.data?.error ?? "Failed to update question.");
       }
     } finally {
       setSaving(false);
@@ -938,7 +1132,11 @@ export default function QuizForm() {
                 {questionTab === "manual" ? (
                   <ManualForm
                     onAdd={(q) => setQuestions((prev) => [...prev, q])}
+                    onUpdate={handleUpdateQuestion}
+                    editingQuestion={editingQuestion?.question ?? null}
+                    onCancelEdit={() => setEditingQuestion(null)}
                     saving={saving}
+                    formRef={manualFormRef}
                   />
                 ) : (
                   <BulkImport
@@ -960,6 +1158,7 @@ export default function QuizForm() {
                         key={q.id}
                         q={q}
                         index={existingQs.length + idx}
+                        onEdit={() => startEditing(q, "pending", idx)}
                         onDelete={() =>
                           setQuestions((prev) =>
                             prev.filter((_, i) => i !== idx),
@@ -983,6 +1182,7 @@ export default function QuizForm() {
                         key={q.id}
                         q={q}
                         index={idx}
+                        onEdit={() => startEditing(q, "existing", idx)}
                         onDelete={() => deleteExistingQuestion(q.id)}
                       />
                     ))}
