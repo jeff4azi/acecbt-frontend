@@ -1,124 +1,12 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ChevronLeft, ChevronRight, AlertTriangle } from "lucide-react";
-
-// ─── Mock Data ───────────────────────────────────────────────────────────────
-
-const MOCK_DURATION_SECONDS = 15 * 60; // 15 minutes
-
-const MOCK_QUESTIONS = [
-  {
-    id: 1,
-    question_text: "If 2x + 5 = 13, what is the value of x?",
-    question_image_url: null,
-    options: [
-      { text: "3", image_url: null },
-      { text: "4", image_url: null },
-      { text: "6", image_url: null },
-      { text: "8", image_url: null },
-    ],
-    correct_option_index: 1, // used only at submit time
-    explanation: "Subtract 5 from both sides: 2x = 8, then divide by 2: x = 4.",
-  },
-  {
-    id: 2,
-    question_text: "Simplify: (3² + 4²)",
-    question_image_url: null,
-    options: [
-      { text: "25", image_url: null },
-      { text: "49", image_url: null },
-      { text: "7", image_url: null },
-      { text: "12", image_url: null },
-    ],
-    correct_option_index: 0,
-    explanation: "3² = 9 and 4² = 16. 9 + 16 = 25.",
-  },
-  {
-    id: 3,
-    question_text:
-      "A train travels 120 km in 2 hours. What is its average speed?",
-    question_image_url: null,
-    options: [
-      { text: "40 km/h", image_url: null },
-      { text: "60 km/h", image_url: null },
-      { text: "80 km/h", image_url: null },
-      { text: "100 km/h", image_url: null },
-    ],
-    correct_option_index: 1,
-    explanation: "Speed = Distance ÷ Time = 120 ÷ 2 = 60 km/h.",
-  },
-  {
-    id: 4,
-    question_text:
-      "What is the area of a circle with radius 7 cm? (Take π = 22/7)",
-    question_image_url: null,
-    options: [
-      { text: "44 cm²", image_url: null },
-      { text: "154 cm²", image_url: null },
-      { text: "22 cm²", image_url: null },
-      { text: "308 cm²", image_url: null },
-    ],
-    correct_option_index: 1,
-    explanation: "Area = πr² = (22/7) × 7² = 22 × 7 = 154 cm².",
-  },
-  {
-    id: 5,
-    question_text: "Which of the following is a prime number?",
-    question_image_url: null,
-    options: [
-      { text: "1", image_url: null },
-      { text: "9", image_url: null },
-      { text: "11", image_url: null },
-      { text: "15", image_url: null },
-    ],
-    correct_option_index: 2,
-    explanation: "11 is divisible only by 1 and itself, making it prime.",
-  },
-  {
-    id: 6,
-    question_text: "Convert 0.35 to a fraction in its lowest terms.",
-    question_image_url: null,
-    options: [
-      { text: "35/100", image_url: null },
-      { text: "7/20", image_url: null },
-      { text: "1/4", image_url: null },
-      { text: "3/5", image_url: null },
-    ],
-    correct_option_index: 1,
-    explanation: "0.35 = 35/100. Dividing both by 5 gives 7/20.",
-  },
-  {
-    id: 7,
-    question_text:
-      "Find the gradient of the line passing through (2, 3) and (4, 7).",
-    question_image_url: null,
-    options: [
-      { text: "1", image_url: null },
-      { text: "2", image_url: null },
-      { text: "3", image_url: null },
-      { text: "4", image_url: null },
-    ],
-    correct_option_index: 1,
-    explanation: "Gradient = (7 - 3) / (4 - 2) = 4 / 2 = 2.",
-  },
-  {
-    id: 8,
-    question_text: "The mode of the data set {3, 5, 5, 7, 7, 7, 9} is:",
-    question_image_url: null,
-    options: [
-      { text: "5", image_url: null },
-      { text: "7", image_url: null },
-      { text: "9", image_url: null },
-      { text: "3", image_url: null },
-    ],
-    correct_option_index: 1,
-    explanation: "7 appears three times — more than any other value.",
-  },
-];
-
-const PASS_MARK = 50;
-
-// ─── Timer display ────────────────────────────────────────────────────────────
+import {
+  ChevronLeft,
+  ChevronRight,
+  AlertTriangle,
+  AlertCircle,
+} from "lucide-react";
+import api from "../../lib/api";
 
 function formatTime(seconds) {
   const m = Math.floor(seconds / 60)
@@ -128,41 +16,73 @@ function formatTime(seconds) {
   return `${m}:${s}`;
 }
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
-
 export default function QuizTaking() {
   const { quizId } = useParams();
   const navigate = useNavigate();
 
+  const [quiz, setQuiz] = useState(null);
+  const [questions, setQuestions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState({}); // { questionId: optionIndex }
-  const [timeLeft, setTimeLeft] = useState(MOCK_DURATION_SECONDS);
+  const [timeLeft, setTimeLeft] = useState(null);
   const [showConfirm, setShowConfirm] = useState(false);
-  const hasSubmitted = useRef(false);
+  const [submitting, setSubmitting] = useState(false);
 
-  // Countdown timer
+  const hasSubmitted = useRef(false);
+  const timerRef = useRef(null);
+
+  // Load quiz + questions
   useEffect(() => {
-    const interval = setInterval(() => {
+    async function load() {
+      try {
+        const [quizRes, questionsRes] = await Promise.all([
+          api.get(`/quizzes/${quizId}`),
+          api.get(`/quizzes/${quizId}/questions`),
+        ]);
+        setQuiz(quizRes.data);
+        setQuestions(questionsRes.data);
+        setTimeLeft(quizRes.data.duration_minutes * 60);
+      } catch (err) {
+        setError(err.response?.data?.error ?? "Failed to load quiz.");
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, [quizId]);
+
+  // Start countdown once timeLeft is set
+  useEffect(() => {
+    if (timeLeft === null) return;
+    timerRef.current = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
-          clearInterval(interval);
+          clearInterval(timerRef.current);
           handleSubmit(true);
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
-    return () => clearInterval(interval);
+    return () => clearInterval(timerRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [timeLeft !== null]);
 
-  function handleSubmit(autoSubmit = false) {
-    if (hasSubmitted.current) return;
+  async function handleSubmit(autoSubmit = false) {
+    if (hasSubmitted.current || !quiz) return;
     hasSubmitted.current = true;
+    clearInterval(timerRef.current);
+    setSubmitting(true);
 
-    // Compute results against correct answers
+    const totalSeconds = quiz.duration_minutes * 60;
+    const timeTaken = totalSeconds - (timeLeft ?? 0);
+
+    // Compute score locally from correct_option_index on each question
     let correct = 0;
-    const breakdown = MOCK_QUESTIONS.map((q) => {
+    const breakdown = questions.map((q) => {
       const selected = answers[q.id] ?? null;
       const isCorrect = selected === q.correct_option_index;
       if (isCorrect) correct++;
@@ -175,14 +95,23 @@ export default function QuizTaking() {
       };
     });
 
-    const total = MOCK_QUESTIONS.length;
-    const wrong =
-      total -
-      correct -
-      (Object.keys(answers).length < total
-        ? total - Object.keys(answers).length
-        : 0);
+    const total = questions.length;
     const score = Math.round((correct / total) * 100);
+
+    // Persist to backend (fire and don't block navigation on error)
+    try {
+      await api.post(`/quizzes/${quizId}/attempts`, {
+        correct_count: correct,
+        wrong_count: total - correct,
+        total_questions: total,
+        time_taken_seconds: timeTaken,
+      });
+    } catch (err) {
+      console.warn(
+        "Attempt save failed:",
+        err.response?.data?.error ?? err.message,
+      );
+    }
 
     navigate(`/quiz/${quizId}/result`, {
       replace: true,
@@ -191,32 +120,57 @@ export default function QuizTaking() {
         correct_count: correct,
         wrong_count: total - correct,
         total_questions: total,
-        pass_mark: PASS_MARK,
+        pass_mark: quiz.pass_mark,
         per_question: breakdown,
         auto_submitted: autoSubmit,
+        time_taken_seconds: timeTaken,
       },
     });
   }
 
   function attemptSubmit() {
-    const unanswered = MOCK_QUESTIONS.length - Object.keys(answers).length;
-    if (unanswered > 0) {
-      setShowConfirm(true);
-    } else {
-      handleSubmit();
-    }
+    const unanswered = questions.length - Object.keys(answers).length;
+    if (unanswered > 0) setShowConfirm(true);
+    else handleSubmit();
   }
 
-  const question = MOCK_QUESTIONS[currentIndex];
-  const isLast = currentIndex === MOCK_QUESTIONS.length - 1;
-  const isUrgent = timeLeft <= 60;
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-tint flex items-center justify-center">
+        <span className="w-7 h-7 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (error || !quiz || questions.length === 0) {
+    return (
+      <div className="min-h-screen bg-tint flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl p-8 text-center shadow-sm max-w-sm w-full">
+          <AlertCircle size={32} className="text-red-400 mx-auto mb-3" />
+          <p className="text-gray-700 font-medium">
+            {error || "This quiz has no questions yet."}
+          </p>
+          <button
+            onClick={() => navigate(-1)}
+            className="mt-4 text-sm text-primary hover:underline"
+          >
+            Go back
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const question = questions[currentIndex];
+  const isLast = currentIndex === questions.length - 1;
+  const isUrgent = (timeLeft ?? 0) <= 60;
 
   return (
     <div className="min-h-screen bg-tint flex flex-col">
-      {/* ── Sticky header: timer + progress ── */}
+      {/* Sticky header */}
       <div className="sticky top-0 z-10 bg-white border-b border-gray-100 shadow-sm px-4 py-3 flex items-center justify-between gap-4">
         <div className="flex flex-wrap gap-1.5">
-          {MOCK_QUESTIONS.map((q, i) => (
+          {questions.map((q, i) => (
             <button
               key={q.id}
               onClick={() => setCurrentIndex(i)}
@@ -232,7 +186,6 @@ export default function QuizTaking() {
             </button>
           ))}
         </div>
-
         <div
           className={`shrink-0 font-mono font-bold text-lg px-3 py-1 rounded-xl ${
             isUrgent
@@ -240,16 +193,15 @@ export default function QuizTaking() {
               : "bg-tint text-primary-dark"
           }`}
         >
-          {formatTime(timeLeft)}
+          {formatTime(timeLeft ?? 0)}
         </div>
       </div>
 
-      {/* ── Question body ── */}
+      {/* Question */}
       <div className="flex-1 max-w-xl w-full mx-auto px-4 pt-6 pb-4 flex flex-col gap-5">
-        {/* Question number + text */}
         <div>
           <p className="text-xs font-semibold text-accent uppercase tracking-wide mb-2">
-            Question {currentIndex + 1} of {MOCK_QUESTIONS.length}
+            Question {currentIndex + 1} of {questions.length}
           </p>
           <p className="text-gray-900 font-semibold text-base leading-relaxed">
             {question.question_text}
@@ -263,9 +215,8 @@ export default function QuizTaking() {
           )}
         </div>
 
-        {/* Options */}
         <div className="flex flex-col gap-3">
-          {question.options.map((option, idx) => {
+          {(question.options ?? []).map((option, idx) => {
             const selected = answers[question.id] === idx;
             return (
               <button
@@ -303,7 +254,6 @@ export default function QuizTaking() {
           })}
         </div>
 
-        {/* Navigation */}
         <div className="flex items-center gap-3 mt-auto pt-2">
           <button
             onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))}
@@ -312,20 +262,21 @@ export default function QuizTaking() {
           >
             <ChevronLeft size={16} /> Prev
           </button>
-
           {isLast ? (
             <button
               onClick={attemptSubmit}
-              className="flex-1 bg-primary hover:bg-primary-dark text-white font-bold py-2.5 rounded-xl text-sm transition"
+              disabled={submitting}
+              className="flex-1 bg-primary hover:bg-primary-dark disabled:opacity-60 text-white font-bold py-2.5 rounded-xl text-sm transition flex items-center justify-center gap-2"
             >
+              {submitting && (
+                <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              )}
               Submit Quiz
             </button>
           ) : (
             <button
               onClick={() =>
-                setCurrentIndex((i) =>
-                  Math.min(MOCK_QUESTIONS.length - 1, i + 1),
-                )
+                setCurrentIndex((i) => Math.min(questions.length - 1, i + 1))
               }
               className="flex-1 bg-primary hover:bg-primary-dark text-white font-semibold py-2.5 rounded-xl flex items-center justify-center gap-1 text-sm transition"
             >
@@ -335,7 +286,6 @@ export default function QuizTaking() {
         </div>
       </div>
 
-      {/* ── Confirm submit modal ── */}
       {showConfirm && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-4">
           <div className="w-full max-w-sm bg-white rounded-2xl p-6 shadow-2xl">
@@ -346,8 +296,8 @@ export default function QuizTaking() {
               <h2 className="font-bold text-gray-900">Submit anyway?</h2>
             </div>
             <p className="text-sm text-gray-500 mb-5">
-              You have {MOCK_QUESTIONS.length - Object.keys(answers).length}{" "}
-              unanswered question(s). Unanswered questions will be marked wrong.
+              You have {questions.length - Object.keys(answers).length}{" "}
+              unanswered question(s). They will be marked wrong.
             </p>
             <div className="flex gap-3">
               <button

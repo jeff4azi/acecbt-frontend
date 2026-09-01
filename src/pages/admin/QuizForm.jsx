@@ -1,5 +1,5 @@
-import { useState, useRef } from "react";
-import { useParams } from "react-router-dom";
+import { useState, useRef, useEffect } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import {
   ClipboardCopy,
   Check,
@@ -10,9 +10,13 @@ import {
   X,
   ChevronDown,
   ChevronUp,
+  AlertCircle,
 } from "lucide-react";
+import api from "../../lib/api";
+import { supabase } from "../../lib/supabaseClient";
+import imageCompression from "browser-image-compression";
 
-// ─── AI Prompt text ───────────────────────────────────────────────────────────
+// ─── AI Prompt ────────────────────────────────────────────────────────────────
 
 const AI_PROMPT = `You are formatting multiple-choice quiz questions into a strict JSON format for import into a CBT platform.
 
@@ -45,17 +49,33 @@ Here are my questions:
 
 [PASTE YOUR QUESTIONS HERE]`;
 
+// ─── Image upload helper ──────────────────────────────────────────────────────
+
+async function uploadImage(file, bucket) {
+  const compressed = await imageCompression(file, {
+    maxSizeMB: 0.15,
+    maxWidthOrHeight: 800,
+    useWebWorker: true,
+    fileType: "image/webp",
+  });
+  const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.webp`;
+  const { error } = await supabase.storage
+    .from(bucket)
+    .upload(path, compressed, { contentType: "image/webp" });
+  if (error) throw new Error(error.message);
+  const { data } = supabase.storage.from(bucket).getPublicUrl(path);
+  return data.publicUrl;
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function makeId() {
   return Math.random().toString(36).slice(2, 10);
 }
-
 function blankOption() {
   return { id: makeId(), text: "", image_url: null, image_preview: null };
 }
-
-function blankQuestionForm() {
+function blankForm() {
   return {
     question_text: "",
     question_image_url: null,
@@ -66,29 +86,19 @@ function blankQuestionForm() {
   };
 }
 
-// ─── Question Card (in the list below the form) ───────────────────────────────
+// ─── Question Card ────────────────────────────────────────────────────────────
 
-function QuestionCard({ q, index, onEdit, onDelete }) {
+function QuestionCard({ q, index, onDelete }) {
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-xs font-bold text-accent uppercase mb-1">
-          Q{index + 1}
-        </p>
-        <div className="flex gap-1.5">
-          <button
-            onClick={onEdit}
-            className="text-primary hover:text-primary-dark p-1 rounded-lg hover:bg-tint transition"
-          >
-            <Pencil size={14} />
-          </button>
-          <button
-            onClick={onDelete}
-            className="text-red-400 hover:text-red-600 p-1 rounded-lg hover:bg-red-50 transition"
-          >
-            <Trash2 size={14} />
-          </button>
-        </div>
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <p className="text-xs font-bold text-accent uppercase">Q{index + 1}</p>
+        <button
+          onClick={onDelete}
+          className="text-red-400 hover:text-red-600 p-1 rounded-lg hover:bg-red-50 transition"
+        >
+          <Trash2 size={14} />
+        </button>
       </div>
       <p className="text-sm text-gray-800 font-medium mb-3 line-clamp-2">
         {q.question_text}
@@ -96,15 +106,14 @@ function QuestionCard({ q, index, onEdit, onDelete }) {
       <div className="grid grid-cols-2 gap-1.5">
         {q.options.map((opt, oi) => (
           <div
-            key={opt.id}
+            key={oi}
             className={`text-xs px-2.5 py-1.5 rounded-lg border ${
               oi === q.correct_option_index
                 ? "bg-green-50 border-green-300 text-green-700 font-semibold"
                 : "bg-gray-50 border-gray-200 text-gray-600"
             }`}
           >
-            {String.fromCharCode(65 + oi)}.{" "}
-            {opt.text || <em className="text-gray-400">empty</em>}
+            {String.fromCharCode(65 + oi)}. {opt.text}
           </div>
         ))}
       </div>
@@ -117,10 +126,10 @@ function QuestionCard({ q, index, onEdit, onDelete }) {
   );
 }
 
-// ─── Manual Question Form ─────────────────────────────────────────────────────
+// ─── Manual Form ──────────────────────────────────────────────────────────────
 
-function ManualForm({ onAdd }) {
-  const [form, setForm] = useState(blankQuestionForm());
+function ManualForm({ onAdd, saving }) {
+  const [form, setForm] = useState(blankForm());
   const qImgRef = useRef();
 
   function handleQuestionImage(e) {
@@ -128,7 +137,7 @@ function ManualForm({ onAdd }) {
     if (!file) return;
     setForm((f) => ({
       ...f,
-      question_image_url: file,
+      _questionFile: file,
       question_image_preview: URL.createObjectURL(file),
     }));
   }
@@ -148,7 +157,7 @@ function ManualForm({ onAdd }) {
       const opts = [...f.options];
       opts[idx] = {
         ...opts[idx],
-        image_url: file,
+        _file: file,
         image_preview: URL.createObjectURL(file),
       };
       return { ...f, options: opts };
@@ -174,13 +183,12 @@ function ManualForm({ onAdd }) {
     e.preventDefault();
     if (!form.question_text.trim()) return;
     onAdd({ ...form, id: makeId() });
-    setForm(blankQuestionForm());
+    setForm(blankForm());
     if (qImgRef.current) qImgRef.current.value = "";
   }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
-      {/* Question text */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">
           Question Text
@@ -196,8 +204,6 @@ function ManualForm({ onAdd }) {
           className="w-full px-4 py-3 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm text-gray-800 resize-none"
         />
       </div>
-
-      {/* Question image */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">
           Question Image (optional)
@@ -217,8 +223,6 @@ function ManualForm({ onAdd }) {
           />
         )}
       </div>
-
-      {/* Options */}
       <div>
         <div className="flex items-center justify-between mb-2">
           <label className="text-sm font-medium text-gray-700">
@@ -237,7 +241,6 @@ function ManualForm({ onAdd }) {
         <div className="space-y-3">
           {form.options.map((opt, idx) => (
             <div key={opt.id} className="flex items-start gap-2">
-              {/* Correct radio */}
               <input
                 type="radio"
                 name="correct_option"
@@ -286,8 +289,6 @@ function ManualForm({ onAdd }) {
           Select the radio button next to the correct answer.
         </p>
       </div>
-
-      {/* Explanation */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">
           Explanation (optional)
@@ -302,10 +303,10 @@ function ManualForm({ onAdd }) {
           className="w-full px-4 py-3 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm resize-none"
         />
       </div>
-
       <button
         type="submit"
-        className="w-full bg-primary hover:bg-primary-dark text-white font-semibold py-3 rounded-xl text-sm transition"
+        disabled={saving}
+        className="w-full bg-primary hover:bg-primary-dark disabled:opacity-60 text-white font-semibold py-3 rounded-xl text-sm transition"
       >
         Add Question
       </button>
@@ -313,7 +314,7 @@ function ManualForm({ onAdd }) {
   );
 }
 
-// ─── Bulk JSON Import ─────────────────────────────────────────────────────────
+// ─── Bulk Import ──────────────────────────────────────────────────────────────
 
 function BulkImport({ onImport }) {
   const [jsonText, setJsonText] = useState("");
@@ -349,11 +350,13 @@ function BulkImport({ onImport }) {
         question_text: q.question_text || "",
         question_image_url: null,
         question_image_preview: null,
+        _questionFile: null,
         options: (q.options || []).map((o) => ({
           id: makeId(),
           text: o.text || "",
           image_url: null,
           image_preview: null,
+          _file: null,
         })),
         correct_option_index: q.correct_option ?? 0,
         explanation: q.explanation || "",
@@ -367,8 +370,8 @@ function BulkImport({ onImport }) {
     <div className="space-y-5">
       <div>
         <p className="text-sm text-gray-600 mb-3">
-          Copy the prompt below, paste it into your AI assistant (ChatGPT,
-          Claude, etc.), then paste your questions and let it generate the JSON.
+          Copy the prompt, paste it into ChatGPT/Claude with your questions,
+          then paste the JSON output below.
         </p>
         <button
           onClick={copyPrompt}
@@ -385,7 +388,6 @@ function BulkImport({ onImport }) {
           )}
         </button>
       </div>
-
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">
           Paste JSON output here
@@ -398,13 +400,11 @@ function BulkImport({ onImport }) {
           className="w-full px-4 py-3 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-xs font-mono resize-none"
         />
       </div>
-
       {error && (
         <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5">
           {error}
         </p>
       )}
-
       <button
         onClick={parseJSON}
         disabled={!jsonText.trim()}
@@ -412,11 +412,10 @@ function BulkImport({ onImport }) {
       >
         Parse &amp; Preview
       </button>
-
       {parsed && (
         <div className="space-y-3">
           <p className="text-sm font-semibold text-gray-700">
-            {parsed.length} question(s) parsed — preview:
+            {parsed.length} question(s) parsed:
           </p>
           <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
             {parsed.map((q, idx) => (
@@ -451,9 +450,9 @@ function BulkImport({ onImport }) {
 
 export default function QuizForm() {
   const { quizId } = useParams();
+  const navigate = useNavigate();
   const isEditing = Boolean(quizId);
 
-  // Section A: quiz details
   const [details, setDetails] = useState({
     title: "",
     description: "",
@@ -462,45 +461,124 @@ export default function QuizForm() {
     pass_mark: 50,
     is_published: false,
   });
-
-  // Section B: questions
   const [questions, setQuestions] = useState([]);
-  const [questionTab, setQuestionTab] = useState("manual"); // 'manual' | 'bulk'
-  const [editingIndex, setEditingIndex] = useState(null);
+  const [existingQs, setExistingQs] = useState([]); // from DB when editing
+  const [questionTab, setQuestionTab] = useState("manual");
   const [showQuestions, setShowQuestions] = useState(true);
 
-  function handleDetailChange(key, val) {
-    setDetails((d) => ({ ...d, [key]: val }));
-  }
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [saveOk, setSaveOk] = useState(false);
 
-  function handleSave(e) {
+  // Load existing quiz when editing
+  useEffect(() => {
+    if (!isEditing) return;
+    async function load() {
+      try {
+        const [quizRes, questionsRes] = await Promise.all([
+          api.get(`/quizzes/${quizId}`),
+          api.get(`/quizzes/${quizId}/questions`),
+        ]);
+        const q = quizRes.data;
+        setDetails({
+          title: q.title,
+          description: q.description ?? "",
+          price: q.price,
+          duration_minutes: q.duration_minutes,
+          pass_mark: q.pass_mark,
+          is_published: q.is_published,
+        });
+        setExistingQs(questionsRes.data);
+      } catch (err) {
+        console.error("QuizForm load error:", err);
+      }
+    }
+    load();
+  }, [quizId, isEditing]);
+
+  // ── Save quiz details ─────────────────────────────────────────────────────
+
+  async function handleSave(e) {
     e.preventDefault();
-    console.log("Quiz form state:", { details, questions });
-  }
+    setSaveError("");
+    setSaving(true);
+    setSaveOk(false);
 
-  function addQuestion(q) {
-    if (editingIndex !== null) {
-      setQuestions((prev) =>
-        prev.map((item, i) => (i === editingIndex ? q : item)),
-      );
-      setEditingIndex(null);
-    } else {
-      setQuestions((prev) => [...prev, q]);
+    try {
+      let savedQuiz;
+      const payload = {
+        title: details.title,
+        description: details.description,
+        price: Number(details.price),
+        duration_minutes: Number(details.duration_minutes),
+        pass_mark: Number(details.pass_mark),
+        is_published: details.is_published,
+      };
+
+      if (isEditing) {
+        const res = await api.patch(`/quizzes/${quizId}`, payload);
+        savedQuiz = res.data;
+      } else {
+        const res = await api.post("/quizzes", payload);
+        savedQuiz = res.data;
+      }
+
+      // Save any new questions (with image uploads)
+      if (questions.length > 0) {
+        for (const q of questions) {
+          // Upload images if present
+          let questionImageUrl = null;
+          if (q._questionFile) {
+            questionImageUrl = await uploadImage(
+              q._questionFile,
+              "question-images",
+            );
+          }
+          const options = await Promise.all(
+            q.options.map(async (opt) => {
+              let imageUrl = null;
+              if (opt._file)
+                imageUrl = await uploadImage(opt._file, "option-images");
+              return { text: opt.text, image_url: imageUrl };
+            }),
+          );
+          await api.post(`/quizzes/${savedQuiz.id}/questions`, {
+            question_text: q.question_text,
+            question_image_url: questionImageUrl,
+            options,
+            correct_option_index: q.correct_option_index,
+            explanation: q.explanation || null,
+          });
+        }
+        setQuestions([]);
+      }
+
+      setSaveOk(true);
+      setTimeout(() => setSaveOk(false), 3000);
+
+      if (!isEditing)
+        navigate(`/admin/quizzes/${savedQuiz.id}/edit`, { replace: true });
+    } catch (err) {
+      setSaveError(err.response?.data?.error ?? "Failed to save quiz.");
+    } finally {
+      setSaving(false);
     }
   }
 
-  function importQuestions(qs) {
-    setQuestions((prev) => [...prev, ...qs]);
-  }
+  // ── Delete existing question ──────────────────────────────────────────────
 
-  function deleteQuestion(idx) {
-    setQuestions((prev) => prev.filter((_, i) => i !== idx));
+  async function deleteExistingQuestion(id) {
+    try {
+      await api.delete(`/questions/${id}`);
+      setExistingQs((prev) => prev.filter((q) => q.id !== id));
+    } catch (err) {
+      console.error("Delete question error:", err);
+    }
   }
 
   return (
     <div className="min-h-screen bg-tint">
       <div className="max-w-3xl mx-auto px-4 pt-6 pb-12 space-y-8">
-        {/* Header */}
         <div>
           <h1 className="text-2xl font-bold text-primary-dark">
             {isEditing ? "Edit Quiz" : "New Quiz"}
@@ -515,11 +593,12 @@ export default function QuizForm() {
           <h2 className="font-bold text-gray-800 text-base mb-5">
             Quiz Details
           </h2>
-          <form
-            onSubmit={handleSave}
-            className="space-y-4"
-            id="quiz-details-form"
-          >
+          {saveError && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm flex items-center gap-2">
+              <AlertCircle size={14} /> {saveError}
+            </div>
+          )}
+          <form onSubmit={handleSave} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Title
@@ -528,12 +607,13 @@ export default function QuizForm() {
                 type="text"
                 required
                 value={details.title}
-                onChange={(e) => handleDetailChange("title", e.target.value)}
+                onChange={(e) =>
+                  setDetails((d) => ({ ...d, title: e.target.value }))
+                }
                 placeholder="e.g. WAEC Mathematics 2024"
                 className="w-full px-4 py-3 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm"
               />
             </div>
-
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Description
@@ -542,13 +622,12 @@ export default function QuizForm() {
                 rows={3}
                 value={details.description}
                 onChange={(e) =>
-                  handleDetailChange("description", e.target.value)
+                  setDetails((d) => ({ ...d, description: e.target.value }))
                 }
                 placeholder="Brief description of this quiz…"
                 className="w-full px-4 py-3 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm resize-none"
               />
             </div>
-
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -557,8 +636,11 @@ export default function QuizForm() {
                 <input
                   type="number"
                   min={0}
+                  required
                   value={details.price}
-                  onChange={(e) => handleDetailChange("price", e.target.value)}
+                  onChange={(e) =>
+                    setDetails((d) => ({ ...d, price: e.target.value }))
+                  }
                   placeholder="500"
                   className="w-full px-4 py-3 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm"
                 />
@@ -570,9 +652,13 @@ export default function QuizForm() {
                 <input
                   type="number"
                   min={1}
+                  required
                   value={details.duration_minutes}
                   onChange={(e) =>
-                    handleDetailChange("duration_minutes", e.target.value)
+                    setDetails((d) => ({
+                      ...d,
+                      duration_minutes: e.target.value,
+                    }))
                   }
                   placeholder="60"
                   className="w-full px-4 py-3 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm"
@@ -588,14 +674,12 @@ export default function QuizForm() {
                   max={100}
                   value={details.pass_mark}
                   onChange={(e) =>
-                    handleDetailChange("pass_mark", e.target.value)
+                    setDetails((d) => ({ ...d, pass_mark: e.target.value }))
                   }
                   className="w-full px-4 py-3 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm"
                 />
               </div>
             </div>
-
-            {/* Published toggle */}
             <div className="flex items-center justify-between p-4 bg-tint rounded-xl">
               <div>
                 <p className="text-sm font-medium text-gray-800">Published</p>
@@ -606,7 +690,7 @@ export default function QuizForm() {
               <button
                 type="button"
                 onClick={() =>
-                  handleDetailChange("is_published", !details.is_published)
+                  setDetails((d) => ({ ...d, is_published: !d.is_published }))
                 }
                 className={`w-12 h-6 rounded-full transition-colors relative ${details.is_published ? "bg-primary" : "bg-gray-300"}`}
               >
@@ -615,24 +699,33 @@ export default function QuizForm() {
                 />
               </button>
             </div>
-
-            <button
-              type="submit"
-              form="quiz-details-form"
-              className="bg-primary hover:bg-primary-dark text-white font-semibold px-6 py-3 rounded-xl text-sm transition"
-            >
-              Save Details
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                type="submit"
+                disabled={saving}
+                className="bg-primary hover:bg-primary-dark disabled:opacity-60 text-white font-semibold px-6 py-3 rounded-xl text-sm transition flex items-center gap-2"
+              >
+                {saving && (
+                  <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                )}
+                {saving ? "Saving…" : "Save Quiz"}
+              </button>
+              {saveOk && (
+                <span className="flex items-center gap-1 text-sm text-green-600 font-medium">
+                  <Check size={15} /> Saved!
+                </span>
+              )}
+            </div>
           </form>
         </section>
 
-        {/* ── Section B: Question Manager ── */}
+        {/* ── Section B: Questions ── */}
         <section className="bg-tint rounded-2xl border border-accent-light/60 overflow-hidden">
           <div className="bg-white px-6 py-4 flex items-center justify-between border-b border-gray-100">
             <div>
               <h2 className="font-bold text-gray-800 text-base">Questions</h2>
               <p className="text-xs text-gray-400 mt-0.5">
-                {questions.length} question(s) added
+                {existingQs.length} saved · {questions.length} pending save
               </p>
             </div>
             <button
@@ -649,7 +742,6 @@ export default function QuizForm() {
 
           {showQuestions && (
             <div className="p-6 space-y-6">
-              {/* Tab switcher */}
               <div className="flex bg-white rounded-xl border border-accent-light/60 p-1 gap-1">
                 {["manual", "bulk"].map((tab) => (
                   <button
@@ -666,32 +758,56 @@ export default function QuizForm() {
                 ))}
               </div>
 
-              {/* Tab content */}
               <div className="bg-white rounded-xl border border-gray-100 p-5">
                 {questionTab === "manual" ? (
-                  <ManualForm onAdd={addQuestion} />
+                  <ManualForm
+                    onAdd={(q) => setQuestions((prev) => [...prev, q])}
+                    saving={saving}
+                  />
                 ) : (
-                  <BulkImport onImport={importQuestions} />
+                  <BulkImport
+                    onImport={(qs) => setQuestions((prev) => [...prev, ...qs])}
+                  />
                 )}
               </div>
 
-              {/* Question list */}
+              {/* Pending (not yet saved) questions */}
               {questions.length > 0 && (
                 <div>
-                  <h3 className="text-sm font-semibold text-gray-700 mb-3">
-                    Added Questions
-                  </h3>
+                  <p className="text-sm font-semibold text-amber-600 mb-3">
+                    ⚠ {questions.length} question(s) pending — save the quiz
+                    above to persist them.
+                  </p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {questions.map((q, idx) => (
                       <QuestionCard
                         key={q.id}
                         q={q}
+                        index={existingQs.length + idx}
+                        onDelete={() =>
+                          setQuestions((prev) =>
+                            prev.filter((_, i) => i !== idx),
+                          )
+                        }
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Saved questions */}
+              {existingQs.length > 0 && (
+                <div>
+                  <p className="text-sm font-semibold text-gray-700 mb-3">
+                    Saved Questions ({existingQs.length})
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {existingQs.map((q, idx) => (
+                      <QuestionCard
+                        key={q.id}
+                        q={q}
                         index={idx}
-                        onEdit={() => {
-                          setEditingIndex(idx);
-                          setQuestionTab("manual");
-                        }}
-                        onDelete={() => deleteQuestion(idx)}
+                        onDelete={() => deleteExistingQuestion(q.id)}
                       />
                     ))}
                   </div>

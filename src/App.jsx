@@ -1,29 +1,29 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
-import { AuthProvider } from './context/AuthContext'
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { AuthProvider } from "./context/AuthContext";
 
-import StudentLayout from './components/StudentLayout'
-import AdminLayout from './components/AdminLayout'
+import StudentLayout from "./components/StudentLayout";
+import AdminLayout from "./components/AdminLayout";
 
 // Student pages
-import Login from './pages/student/Login'
-import Register from './pages/student/Register'
-import Home from './pages/student/Home'
-import Browse from './pages/student/Browse'
-import QuizDetail from './pages/student/QuizDetail'
-import QuizTaking from './pages/student/QuizTaking'
-import Result from './pages/student/Result'
-import Leaderboard from './pages/student/Leaderboard'
-import History from './pages/student/History'
-import Profile from './pages/student/Profile'
+import Login from "./pages/student/Login";
+import Register from "./pages/student/Register";
+import Home from "./pages/student/Home";
+import Browse from "./pages/student/Browse";
+import QuizDetail from "./pages/student/QuizDetail";
+import QuizTaking from "./pages/student/QuizTaking";
+import Result from "./pages/student/Result";
+import Leaderboard from "./pages/student/Leaderboard";
+import History from "./pages/student/History";
+import Profile from "./pages/student/Profile";
 
 // Admin pages
-import AdminLogin from './pages/admin/Login'
-import AdminDashboard from './pages/admin/Dashboard'
-import AdminQuizzes from './pages/admin/Quizzes'
-import AdminQuizForm from './pages/admin/QuizForm'
-import AdminCodes from './pages/admin/Codes'
-import AdminAds from './pages/admin/Ads'
-import AdminSettings from './pages/admin/Settings'
+import AdminLogin from "./pages/admin/Login";
+import AdminDashboard from "./pages/admin/Dashboard";
+import AdminQuizzes from "./pages/admin/Quizzes";
+import AdminQuizForm from "./pages/admin/QuizForm";
+import AdminCodes from "./pages/admin/Codes";
+import AdminAds from "./pages/admin/Ads";
+import AdminSettings from "./pages/admin/Settings";
 
 export default function App() {
   return (
@@ -35,12 +35,14 @@ export default function App() {
           <Route path="/register" element={<Register />} />
           <Route path="/admin/login" element={<AdminLogin />} />
 
+          {/* Quiz taking — full-screen, no nav chrome */}
+          <Route path="/quiz/:quizId/take" element={<QuizTaking />} />
+
           {/* Student app */}
           <Route element={<StudentLayout />}>
             <Route path="/" element={<Home />} />
             <Route path="/browse" element={<Browse />} />
             <Route path="/quiz/:quizId" element={<QuizDetail />} />
-            <Route path="/quiz/:quizId/take" element={<QuizTaking />} />
             <Route path="/quiz/:quizId/result" element={<Result />} />
             <Route path="/quiz/:quizId/leaderboard" element={<Leaderboard />} />
             <Route path="/history" element={<History />} />
@@ -52,7 +54,10 @@ export default function App() {
             <Route path="/admin" element={<AdminDashboard />} />
             <Route path="/admin/quizzes" element={<AdminQuizzes />} />
             <Route path="/admin/quizzes/new" element={<AdminQuizForm />} />
-            <Route path="/admin/quizzes/:quizId/edit" element={<AdminQuizForm />} />
+            <Route
+              path="/admin/quizzes/:quizId/edit"
+              element={<AdminQuizForm />}
+            />
             <Route path="/admin/codes" element={<AdminCodes />} />
             <Route path="/admin/ads" element={<AdminAds />} />
             <Route path="/admin/settings" element={<AdminSettings />} />
@@ -60,5 +65,5 @@ export default function App() {
         </Routes>
       </BrowserRouter>
     </AuthProvider>
-  )
+  );
 }

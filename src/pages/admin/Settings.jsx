@@ -1,18 +1,6 @@
-import { useState } from "react";
-import { Check } from "lucide-react";
-
-// ─── Mock initial values ──────────────────────────────────────────────────────
-
-const INITIAL_SETTINGS = {
-  whatsapp_number: "2348012345678",
-  bank_name: "First Bank Nigeria",
-  account_number: "3012345678",
-  account_name: "Ace Edu CBT Ltd",
-  contact_email: "support@aceeducbt.com",
-  contact_phone: "08012345678",
-};
-
-// ─── Reusable field ───────────────────────────────────────────────────────────
+import { useState, useEffect } from "react";
+import { Check, AlertCircle } from "lucide-react";
+import api from "../../lib/api";
 
 function Field({ label, name, type = "text", value, onChange, placeholder }) {
   return (
@@ -32,29 +20,75 @@ function Field({ label, name, type = "text", value, onChange, placeholder }) {
   );
 }
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
-
 export default function Settings() {
-  const [form, setForm] = useState(INITIAL_SETTINGS);
+  const [form, setForm] = useState({
+    whatsapp_number: "",
+    bank_name: "",
+    account_number: "",
+    account_name: "",
+    contact_email: "",
+    contact_phone: "",
+  });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    api
+      .get("/settings")
+      .then((res) => {
+        const d = res.data;
+        setForm({
+          whatsapp_number: d.whatsapp_number ?? "",
+          bank_name: d.bank_name ?? "",
+          account_number: d.account_number ?? "",
+          account_name: d.account_name ?? "",
+          contact_email: d.contact_email ?? "",
+          contact_phone: d.contact_phone ?? "",
+        });
+      })
+      .catch((err) =>
+        setError(
+          "Failed to load settings: " +
+            (err.response?.data?.error ?? err.message),
+        ),
+      )
+      .finally(() => setLoading(false));
+  }, []);
 
   function handleChange(e) {
     const { name, value } = e.target;
     setForm((f) => ({ ...f, [name]: value }));
   }
 
-  function handleSave(e) {
+  async function handleSave(e) {
     e.preventDefault();
-    // TODO: wire to real backend settings endpoint
-    console.log("Settings saved:", form);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
+    setError("");
+    setSaving(true);
+    setSaved(false);
+    try {
+      await api.patch("/settings", form);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (err) {
+      setError(err.response?.data?.error ?? "Failed to save settings.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-tint flex items-center justify-center">
+        <span className="w-7 h-7 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
   }
 
   return (
     <div className="min-h-screen bg-tint">
       <div className="max-w-2xl mx-auto px-4 pt-6 pb-12 space-y-6">
-        {/* Header */}
         <div>
           <h1 className="text-2xl font-bold text-primary-dark">Settings</h1>
           <p className="text-sm text-gray-500 mt-1">
@@ -62,8 +96,13 @@ export default function Settings() {
           </p>
         </div>
 
+        {error && (
+          <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm flex items-center gap-2">
+            <AlertCircle size={14} /> {error}
+          </div>
+        )}
+
         <form onSubmit={handleSave} className="space-y-5">
-          {/* Payment Details */}
           <section className="bg-white rounded-2xl shadow-sm p-6 space-y-4">
             <h2 className="font-bold text-gray-800">Payment Details</h2>
             <Field
@@ -89,7 +128,6 @@ export default function Settings() {
             />
           </section>
 
-          {/* Contact Info */}
           <section className="bg-white rounded-2xl shadow-sm p-6 space-y-4">
             <h2 className="font-bold text-gray-800">Contact Info</h2>
             <Field
@@ -102,10 +140,10 @@ export default function Settings() {
             <Field
               label="Contact Email"
               name="contact_email"
-              type="email"
               value={form.contact_email}
               onChange={handleChange}
               placeholder="support@yourapp.com"
+              type="email"
             />
             <Field
               label="Contact Phone"
@@ -116,16 +154,19 @@ export default function Settings() {
             />
           </section>
 
-          {/* Save */}
           <div className="flex items-center gap-4">
             <button
               type="submit"
-              className="bg-primary hover:bg-primary-dark text-white font-semibold px-8 py-3 rounded-xl text-sm transition shadow-sm"
+              disabled={saving}
+              className="bg-primary hover:bg-primary-dark disabled:opacity-60 text-white font-semibold px-8 py-3 rounded-xl text-sm transition shadow-sm flex items-center gap-2"
             >
-              Save Changes
+              {saving && (
+                <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              )}
+              {saving ? "Saving…" : "Save Changes"}
             </button>
             {saved && (
-              <span className="flex items-center gap-1.5 text-sm text-green-600 font-medium animate-pulse">
+              <span className="flex items-center gap-1.5 text-sm text-green-600 font-medium">
                 <Check size={16} /> Saved!
               </span>
             )}

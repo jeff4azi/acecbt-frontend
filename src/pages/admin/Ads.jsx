@@ -1,44 +1,24 @@
-import { useState, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Plus, Pencil, Trash2, X, ExternalLink } from "lucide-react";
+import api from "../../lib/api";
+import { supabase } from "../../lib/supabaseClient";
+import imageCompression from "browser-image-compression";
 
-// ─── Mock Data ───────────────────────────────────────────────────────────────
-// Real upload should use the browser-image-compression library already installed,
-// targeting 800-1200px width, 80-250KB, WebP/JPEG before uploading to Supabase
-// Storage's ad-images bucket, once wired to the backend.
-
-const INITIAL_ADS = [
-  {
-    id: "1",
-    image_url: "https://picsum.photos/seed/ad10/800/300",
-    link_url: "https://example.com/promo1",
-    duration_seconds: 5,
-    is_active: true,
-  },
-  {
-    id: "2",
-    image_url: "https://picsum.photos/seed/ad20/800/300",
-    link_url: "https://example.com/promo2",
-    duration_seconds: 7,
-    is_active: true,
-  },
-  {
-    id: "3",
-    image_url: "https://picsum.photos/seed/ad30/800/300",
-    link_url: "https://example.com/sale",
-    duration_seconds: 6,
-    is_active: false,
-  },
-  {
-    id: "4",
-    image_url: "https://picsum.photos/seed/ad40/800/300",
-    link_url: "https://example.com/event",
-    duration_seconds: 10,
-    is_active: true,
-  },
-];
-
-function makeId() {
-  return Math.random().toString(36).slice(2, 10);
+// Real upload: compress to 80-250KB WebP then upload to Supabase Storage ad-images bucket
+async function uploadAdImage(file) {
+  const compressed = await imageCompression(file, {
+    maxSizeMB: 0.25,
+    maxWidthOrHeight: 1200,
+    useWebWorker: true,
+    fileType: "image/webp",
+  });
+  const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.webp`;
+  const { error } = await supabase.storage
+    .from("ad-images")
+    .upload(path, compressed, { contentType: "image/webp" });
+  if (error) throw new Error(error.message);
+  const { data } = supabase.storage.from("ad-images").getPublicUrl(path);
+  return data.publicUrl;
 }
 
 function truncateUrl(url, max = 40) {
@@ -46,13 +26,13 @@ function truncateUrl(url, max = 40) {
   return url.length > max ? url.slice(0, max) + "…" : url;
 }
 
-// ─── Add/Edit form ────────────────────────────────────────────────────────────
-
 function AdForm({ initial, onSave, onCancel }) {
   const [linkUrl, setLinkUrl] = useState(initial?.link_url ?? "");
   const [duration, setDuration] = useState(initial?.duration_seconds ?? 5);
   const [imageFile, setImageFile] = useState(null);
   const [preview, setPreview] = useState(initial?.image_url ?? null);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState("");
   const fileRef = useRef();
 
   function handleImage(e) {
@@ -62,15 +42,34 @@ function AdForm({ initial, onSave, onCancel }) {
     setPreview(URL.createObjectURL(file));
   }
 
-  function handleSave(e) {
+  async function handleSave(e) {
     e.preventDefault();
+    setError("");
+
+    let imageUrl = initial?.image_url ?? "";
+    if (imageFile) {
+      setUploading(true);
+      try {
+        imageUrl = await uploadAdImage(imageFile);
+      } catch (err) {
+        setError("Image upload failed: " + err.message);
+        setUploading(false);
+        return;
+      }
+      setUploading(false);
+    }
+
+    if (!imageUrl) {
+      setError("Please select an image.");
+      return;
+    }
+
     onSave({
-      id: initial?.id ?? makeId(),
-      image_url: preview ?? "https://picsum.photos/seed/new/800/300",
+      id: initial?.id,
+      image_url: imageUrl,
       link_url: linkUrl,
       duration_seconds: Number(duration),
       is_active: initial?.is_active ?? true,
-      _imageFile: imageFile, // available for real upload later
     });
   }
 
@@ -121,6 +120,11 @@ function AdForm({ initial, onSave, onCancel }) {
           className="w-full px-4 py-3 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm"
         />
       </div>
+      {error && (
+        <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+          {error}
+        </p>
+      )}
       <div className="flex gap-3 pt-1">
         <button
           type="button"
@@ -131,56 +135,88 @@ function AdForm({ initial, onSave, onCancel }) {
         </button>
         <button
           type="submit"
-          className="flex-1 bg-primary hover:bg-primary-dark text-white font-semibold py-2.5 rounded-xl text-sm transition"
+          disabled={uploading}
+          className="flex-1 bg-primary hover:bg-primary-dark disabled:opacity-60 text-white font-semibold py-2.5 rounded-xl text-sm transition flex items-center justify-center gap-2"
         >
-          Save
+          {uploading && (
+            <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+          )}
+          {uploading ? "Uploading…" : "Save"}
         </button>
       </div>
     </form>
   );
 }
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
-
 export default function Ads() {
-  const [ads, setAds] = useState(INITIAL_ADS);
+  const [ads, setAds] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [editingAd, setEditingAd] = useState(null); // null = adding, object = editing
+  const [editingAd, setEditingAd] = useState(null);
 
-  function toggleActive(id) {
-    setAds((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, is_active: !a.is_active } : a)),
-    );
-  }
+  useEffect(() => {
+    api
+      .get("/ads/admin")
+      .then((res) => setAds(res.data))
+      .catch((err) => console.error("Ads load error:", err))
+      .finally(() => setLoading(false));
+  }, []);
 
-  function deleteAd(id) {
-    setAds((prev) => prev.filter((a) => a.id !== id));
-  }
-
-  function handleSave(ad) {
-    if (editingAd) {
-      setAds((prev) => prev.map((a) => (a.id === ad.id ? ad : a)));
-    } else {
-      setAds((prev) => [...prev, ad]);
+  async function toggleActive(ad) {
+    try {
+      const res = await api.patch(`/ads/${ad.id}`, {
+        is_active: !ad.is_active,
+      });
+      setAds((prev) => prev.map((a) => (a.id === ad.id ? res.data : a)));
+    } catch (err) {
+      console.error("Toggle ad error:", err);
     }
-    setShowForm(false);
-    setEditingAd(null);
   }
 
-  function openEdit(ad) {
-    setEditingAd(ad);
-    setShowForm(true);
+  async function deleteAd(id) {
+    try {
+      await api.delete(`/ads/${id}`);
+      setAds((prev) => prev.filter((a) => a.id !== id));
+    } catch (err) {
+      console.error("Delete ad error:", err);
+    }
   }
 
-  function openAdd() {
-    setEditingAd(null);
-    setShowForm(true);
+  async function handleSave(ad) {
+    try {
+      if (editingAd) {
+        const res = await api.patch(`/ads/${ad.id}`, {
+          image_url: ad.image_url,
+          link_url: ad.link_url,
+          duration_seconds: ad.duration_seconds,
+        });
+        setAds((prev) => prev.map((a) => (a.id === ad.id ? res.data : a)));
+      } else {
+        const res = await api.post("/ads", {
+          image_url: ad.image_url,
+          link_url: ad.link_url,
+          duration_seconds: ad.duration_seconds,
+        });
+        setAds((prev) => [res.data, ...prev]);
+      }
+      setShowForm(false);
+      setEditingAd(null);
+    } catch (err) {
+      console.error("Save ad error:", err);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-tint flex items-center justify-center">
+        <span className="w-7 h-7 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
   }
 
   return (
     <div className="min-h-screen bg-tint">
       <div className="max-w-4xl mx-auto px-4 pt-6 pb-10">
-        {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold text-primary-dark">Ads</h1>
@@ -190,7 +226,10 @@ export default function Ads() {
           </div>
           {!showForm && (
             <button
-              onClick={openAdd}
+              onClick={() => {
+                setEditingAd(null);
+                setShowForm(true);
+              }}
               className="flex items-center gap-1.5 bg-primary hover:bg-primary-dark text-white font-semibold px-4 py-2.5 rounded-xl text-sm transition shadow-sm"
             >
               <Plus size={16} /> Add Ad
@@ -198,7 +237,6 @@ export default function Ads() {
           )}
         </div>
 
-        {/* Inline form */}
         {showForm && (
           <div className="bg-white rounded-2xl shadow-sm p-6 mb-6 border border-accent-light/60">
             <div className="flex items-center justify-between mb-4">
@@ -226,7 +264,6 @@ export default function Ads() {
           </div>
         )}
 
-        {/* Ad grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
           {ads.map((ad) => (
             <div
@@ -251,19 +288,16 @@ export default function Ads() {
                     {truncateUrl(ad.link_url)}
                   </a>
                 </div>
-
                 <p className="text-xs text-gray-400">
                   Duration:{" "}
                   <span className="font-medium text-gray-700">
                     {ad.duration_seconds}s
                   </span>
                 </p>
-
                 <div className="flex items-center justify-between pt-1">
-                  {/* Active toggle */}
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => toggleActive(ad.id)}
+                      onClick={() => toggleActive(ad)}
                       className={`w-10 h-5 rounded-full transition-colors relative ${ad.is_active ? "bg-primary" : "bg-gray-300"}`}
                     >
                       <span
@@ -276,10 +310,12 @@ export default function Ads() {
                       {ad.is_active ? "Active" : "Inactive"}
                     </span>
                   </div>
-
                   <div className="flex gap-1.5">
                     <button
-                      onClick={() => openEdit(ad)}
+                      onClick={() => {
+                        setEditingAd(ad);
+                        setShowForm(true);
+                      }}
                       className="p-1.5 rounded-lg hover:bg-tint text-primary transition"
                     >
                       <Pencil size={15} />
@@ -295,7 +331,6 @@ export default function Ads() {
               </div>
             </div>
           ))}
-
           {ads.length === 0 && (
             <div className="col-span-2 py-16 text-center text-sm text-gray-400">
               No ads yet — click "+ Add Ad" to create one.

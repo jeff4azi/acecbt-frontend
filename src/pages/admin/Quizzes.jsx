@@ -1,61 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Plus, Pencil, Trash2, BookOpen, Info } from "lucide-react";
-
-// ─── Mock Data ───────────────────────────────────────────────────────────────
-
-const INITIAL_QUIZZES = [
-  {
-    id: "1",
-    title: "WAEC Mathematics 2024",
-    price: 500,
-    question_count: 60,
-    is_published: true,
-    has_attempts: true,
-  },
-  {
-    id: "2",
-    title: "JAMB English Language",
-    price: 300,
-    question_count: 40,
-    is_published: true,
-    has_attempts: true,
-  },
-  {
-    id: "3",
-    title: "NECO Physics",
-    price: 400,
-    question_count: 50,
-    is_published: true,
-    has_attempts: false,
-  },
-  {
-    id: "4",
-    title: "WAEC Biology 2024",
-    price: 400,
-    question_count: 50,
-    is_published: false,
-    has_attempts: false,
-  },
-  {
-    id: "5",
-    title: "JAMB Chemistry",
-    price: 350,
-    question_count: 40,
-    is_published: true,
-    has_attempts: false,
-  },
-  {
-    id: "6",
-    title: "NECO Government",
-    price: 250,
-    question_count: 45,
-    is_published: false,
-    has_attempts: false,
-  },
-];
-
-// ─── Delete confirm modal ─────────────────────────────────────────────────────
+import api from "../../lib/api";
 
 function DeleteModal({ quiz, onConfirm, onCancel }) {
   return (
@@ -85,21 +31,46 @@ function DeleteModal({ quiz, onConfirm, onCancel }) {
   );
 }
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
-
 export default function Quizzes() {
-  const [quizzes, setQuizzes] = useState(INITIAL_QUIZZES);
+  const [quizzes, setQuizzes] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [toDelete, setToDelete] = useState(null);
+  const [deleteError, setDeleteError] = useState("");
 
-  function confirmDelete() {
-    setQuizzes((prev) => prev.filter((q) => q.id !== toDelete.id));
-    setToDelete(null);
+  useEffect(() => {
+    api
+      .get("/quizzes/admin")
+      .then((res) => setQuizzes(res.data))
+      .catch((err) => console.error("Quizzes load error:", err))
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function confirmDelete() {
+    setDeleteError("");
+    try {
+      await api.delete(`/quizzes/${toDelete.id}`);
+      setQuizzes((prev) => prev.filter((q) => q.id !== toDelete.id));
+      setToDelete(null);
+    } catch (err) {
+      setDeleteError(err.response?.data?.error ?? "Could not delete quiz.");
+      setToDelete(null);
+    }
   }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-tint flex items-center justify-center">
+        <span className="w-7 h-7 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  // We don't have has_attempts from the list endpoint — the backend blocks delete
+  // server-side and returns a 400 error, which we surface as deleteError below.
 
   return (
     <div className="min-h-screen bg-tint">
       <div className="max-w-4xl mx-auto px-4 pt-6 pb-10">
-        {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold text-primary-dark">Quizzes</h1>
@@ -115,6 +86,12 @@ export default function Quizzes() {
           </Link>
         </div>
 
+        {deleteError && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm flex items-center gap-2">
+            <Info size={15} /> {deleteError}
+          </div>
+        )}
+
         {/* Desktop table */}
         <div className="hidden md:block bg-white rounded-2xl shadow-sm overflow-hidden">
           <table className="w-full">
@@ -127,7 +104,7 @@ export default function Quizzes() {
                   Price
                 </th>
                 <th className="px-5 py-3.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                  Questions
+                  Duration
                 </th>
                 <th className="px-5 py-3.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">
                   Status
@@ -144,12 +121,12 @@ export default function Quizzes() {
                     {quiz.title}
                   </td>
                   <td className="px-5 py-4 text-sm text-gray-700">
-                    ₦{quiz.price.toLocaleString()}
+                    ₦{Number(quiz.price).toLocaleString()}
                   </td>
                   <td className="px-5 py-4 text-sm text-gray-600">
                     <span className="flex items-center gap-1">
-                      <BookOpen size={13} className="text-accent" />{" "}
-                      {quiz.question_count}
+                      <BookOpen size={13} className="text-accent" />
+                      {quiz.duration_minutes} min
                     </span>
                   </td>
                   <td className="px-5 py-4">
@@ -171,30 +148,26 @@ export default function Quizzes() {
                       >
                         <Pencil size={13} /> Edit
                       </Link>
-                      <div className="relative group">
-                        <button
-                          onClick={() =>
-                            !quiz.has_attempts && setToDelete(quiz)
-                          }
-                          disabled={quiz.has_attempts}
-                          className={`flex items-center gap-1 text-xs font-medium px-3 py-1.5 rounded-lg transition ${
-                            quiz.has_attempts
-                              ? "text-gray-400 bg-gray-100 cursor-not-allowed"
-                              : "text-red-500 hover:text-red-600 bg-red-50 hover:bg-red-100"
-                          }`}
-                        >
-                          <Trash2 size={13} /> Delete
-                        </button>
-                        {quiz.has_attempts && (
-                          <div className="absolute bottom-full right-0 mb-1 w-48 bg-gray-800 text-white text-xs rounded-lg px-3 py-2 hidden group-hover:block z-10 whitespace-normal">
-                            Can't delete — has attempts. Edit instead.
-                          </div>
-                        )}
-                      </div>
+                      <button
+                        onClick={() => setToDelete(quiz)}
+                        className="flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-600 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg transition"
+                      >
+                        <Trash2 size={13} /> Delete
+                      </button>
                     </div>
                   </td>
                 </tr>
               ))}
+              {quizzes.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={5}
+                    className="px-5 py-12 text-center text-sm text-gray-400"
+                  >
+                    No quizzes yet.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -217,17 +190,15 @@ export default function Quizzes() {
                   {quiz.is_published ? "Published" : "Draft"}
                 </span>
               </div>
-
               <div className="flex items-center gap-4 text-xs text-gray-500 mb-4">
                 <span className="font-bold text-primary">
-                  ₦{quiz.price.toLocaleString()}
+                  ₦{Number(quiz.price).toLocaleString()}
                 </span>
                 <span className="flex items-center gap-1">
-                  <BookOpen size={12} className="text-accent" />{" "}
-                  {quiz.question_count} Qs
+                  <BookOpen size={12} className="text-accent" />
+                  {quiz.duration_minutes} min
                 </span>
               </div>
-
               <div className="flex items-center gap-2">
                 <Link
                   to={`/admin/quizzes/${quiz.id}/edit`}
@@ -235,30 +206,20 @@ export default function Quizzes() {
                 >
                   Edit
                 </Link>
-                <div className="flex-1 relative group">
-                  <button
-                    onClick={() => !quiz.has_attempts && setToDelete(quiz)}
-                    disabled={quiz.has_attempts}
-                    className={`w-full text-xs font-medium py-2 rounded-lg flex items-center justify-center gap-1 ${
-                      quiz.has_attempts
-                        ? "text-gray-400 bg-gray-100 cursor-not-allowed"
-                        : "text-red-500 bg-red-50"
-                    }`}
-                  >
-                    {quiz.has_attempts ? (
-                      <>
-                        <Info size={12} /> Has attempts
-                      </>
-                    ) : (
-                      <>
-                        <Trash2 size={12} /> Delete
-                      </>
-                    )}
-                  </button>
-                </div>
+                <button
+                  onClick={() => setToDelete(quiz)}
+                  className="flex-1 text-xs font-medium text-red-500 bg-red-50 py-2 rounded-lg flex items-center justify-center gap-1"
+                >
+                  <Trash2 size={12} /> Delete
+                </button>
               </div>
             </div>
           ))}
+          {quizzes.length === 0 && (
+            <p className="text-center text-sm text-gray-400 py-12">
+              No quizzes yet.
+            </p>
+          )}
         </div>
       </div>
 
