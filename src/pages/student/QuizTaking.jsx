@@ -31,11 +31,17 @@ export default function QuizTaking() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState({}); // { questionId: optionIndex }
   const [timeLeft, setTimeLeft] = useState(null);
+
+  // Keep ref in sync so the timer callback always sees the latest answers
+  useEffect(() => {
+    answersRef.current = answers;
+  }, [answers]);
   const [showConfirm, setShowConfirm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const hasSubmitted = useRef(false);
   const timerRef = useRef(null);
+  const answersRef = useRef(answers); // always mirrors latest answers for the timer callback
 
   // Load quiz + questions
   useEffect(() => {
@@ -97,9 +103,13 @@ export default function QuizTaking() {
     const totalSeconds = quiz.duration_minutes * 60;
     const timeTaken = totalSeconds - (timeLeft ?? 0);
 
+    // Use the ref so auto-submit (called from stale timer closure) sees
+    // all the answers the user actually selected, not the initial empty map.
+    const currentAnswers = answersRef.current;
+
     let correct = 0;
     const breakdown = questions.map((q) => {
-      const selected = answers[q.id] ?? null;
+      const selected = currentAnswers[q.id] ?? null;
       const isCorrect = selected === q.correct_option_index;
       if (isCorrect) correct++;
       return {
@@ -147,9 +157,7 @@ export default function QuizTaking() {
   }
 
   function attemptSubmit() {
-    const unanswered = questions.length - Object.keys(answers).length;
-    if (unanswered > 0) setShowConfirm(true);
-    else handleSubmit();
+    setShowConfirm(true);
   }
 
   if (authLoading || loading) {
@@ -307,7 +315,7 @@ export default function QuizTaking() {
                 </span>
                 <div className="flex-1 min-w-0 space-y-2">
                   {hasText && (
-                    <span className="block text-sm font-medium break-words">
+                    <span className="block text-sm font-medium wrap-break-word">
                       {option.text}
                     </span>
                   )}
@@ -324,9 +332,7 @@ export default function QuizTaking() {
                         src={option.image_url}
                         alt={`Option ${String.fromCharCode(65 + idx)}`}
                         className={`rounded-lg border border-gray-200 bg-white object-contain hover:ring-2 hover:ring-primary/30 transition ${
-                          hasText
-                            ? "w-full max-h-52"
-                            : "w-full max-h-60"
+                          hasText ? "w-full max-h-52" : "w-full max-h-60"
                         }`}
                         loading="lazy"
                       />
@@ -371,34 +377,104 @@ export default function QuizTaking() {
       </div>
 
       {showConfirm && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-4">
-          <div className="w-full max-w-sm bg-white rounded-2xl p-6 shadow-2xl">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center">
-                <AlertTriangle size={20} className="text-amber-500" />
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => setShowConfirm(false)}
+          />
+
+          {/* Panel */}
+          <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden">
+            {/* Colour bar at top */}
+            <div className="h-1.5 w-full bg-linear-to-r from-primary to-accent" />
+
+            <div className="p-6">
+              {/* Icon + heading */}
+              <div className="flex flex-col items-center text-center mb-5">
+                <div className="w-14 h-14 rounded-full bg-amber-100 flex items-center justify-center mb-3">
+                  <AlertTriangle size={26} className="text-amber-500" />
+                </div>
+                <h2 className="text-lg font-bold text-gray-900">
+                  Submit quiz?
+                </h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  This will end your attempt and record your score.
+                </p>
               </div>
-              <h2 className="font-bold text-gray-900">Submit anyway?</h2>
-            </div>
-            <p className="text-sm text-gray-500 mb-5">
-              You have {questions.length - Object.keys(answers).length}{" "}
-              unanswered question(s). They will be marked wrong.
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowConfirm(false)}
-                className="flex-1 border border-gray-200 text-gray-700 font-medium py-2.5 rounded-xl hover:bg-gray-50 text-sm transition"
-              >
-                Go back
-              </button>
-              <button
-                onClick={() => {
-                  setShowConfirm(false);
-                  handleSubmit();
-                }}
-                className="flex-1 bg-primary hover:bg-primary-dark text-white font-semibold py-2.5 rounded-xl text-sm transition"
-              >
-                Submit
-              </button>
+
+              {/* Stats row */}
+              {(() => {
+                const answered = Object.keys(answersRef.current).length;
+                const unanswered = questions.length - answered;
+                return (
+                  <div className="grid grid-cols-3 gap-2 mb-5">
+                    <div className="bg-tint rounded-xl px-3 py-3 text-center">
+                      <p className="text-xl font-bold text-primary">
+                        {answered}
+                      </p>
+                      <p className="text-[11px] text-gray-500 mt-0.5">
+                        Answered
+                      </p>
+                    </div>
+                    <div
+                      className={`rounded-xl px-3 py-3 text-center ${unanswered > 0 ? "bg-red-50" : "bg-tint"}`}
+                    >
+                      <p
+                        className={`text-xl font-bold ${unanswered > 0 ? "text-red-500" : "text-primary"}`}
+                      >
+                        {unanswered}
+                      </p>
+                      <p className="text-[11px] text-gray-500 mt-0.5">
+                        Skipped
+                      </p>
+                    </div>
+                    <div
+                      className={`rounded-xl px-3 py-3 text-center ${isUrgent ? "bg-red-50" : "bg-tint"}`}
+                    >
+                      <p
+                        className={`text-xl font-bold font-mono ${isUrgent ? "text-red-500" : "text-primary-dark"}`}
+                      >
+                        {formatTime(timeLeft ?? 0)}
+                      </p>
+                      <p className="text-[11px] text-gray-500 mt-0.5">
+                        Remaining
+                      </p>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Warning if skipped questions */}
+              {questions.length - Object.keys(answersRef.current).length >
+                0 && (
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-5 text-center">
+                  Skipped questions will be marked as wrong.
+                </p>
+              )}
+
+              {/* Buttons */}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowConfirm(false)}
+                  className="flex-1 border-2 border-gray-200 text-gray-700 font-semibold py-3 rounded-xl hover:bg-gray-50 text-sm transition"
+                >
+                  Keep going
+                </button>
+                <button
+                  onClick={() => {
+                    setShowConfirm(false);
+                    handleSubmit();
+                  }}
+                  disabled={submitting}
+                  className="flex-1 bg-primary hover:bg-primary-dark disabled:opacity-60 text-white font-bold py-3 rounded-xl text-sm transition flex items-center justify-center gap-2"
+                >
+                  {submitting && (
+                    <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  )}
+                  Submit
+                </button>
+              </div>
             </div>
           </div>
         </div>
