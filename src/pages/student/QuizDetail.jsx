@@ -9,6 +9,9 @@ import {
   Play,
   AlertCircle,
   LogIn,
+  BookOpen,
+  TrendingUp,
+  Target,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import api from "../../lib/api";
@@ -136,21 +139,85 @@ export default function QuizDetail() {
     <div className="min-h-screen bg-tint">
       <div className="max-w-xl mx-auto px-4 pt-8 pb-10 space-y-5">
         {/* Quiz header */}
-        <div className="bg-white rounded-2xl shadow-sm p-6">
-          <h1 className="text-xl font-bold text-primary-dark mb-2">
-            {quiz.title}
-          </h1>
-          <p className="text-sm text-gray-500 mb-4">{quiz.description}</p>
-          <div className="flex flex-wrap gap-3 text-sm text-gray-600">
-            <span className="flex items-center gap-1.5 bg-tint px-3 py-1.5 rounded-lg">
-              <Clock size={14} className="text-accent" />
-              {quiz.duration_minutes} min
-            </span>
-            {!isUnlocked && (
-              <span className="ml-auto text-lg font-bold text-primary">
-                ₦{Number(quiz.price).toLocaleString()}
+        <div className="bg-gradient-to-br from-primary to-primary-dark rounded-3xl p-6 text-white shadow-lg overflow-hidden relative">
+          <div className="absolute -right-10 -top-10 w-40 h-40 rounded-full bg-white/10 blur-2xl" />
+          <div className="absolute -left-10 -bottom-16 w-52 h-52 rounded-full bg-accent/25 blur-3xl" />
+          <div className="relative">
+            <div className="flex items-start justify-between mb-4 gap-3">
+              <span className="text-xs font-semibold text-white/70 uppercase tracking-wider pt-1">
+                Ace Edu CBT
               </span>
+              {!isUnlocked && (
+                <span className="text-xl font-extrabold bg-white/15 backdrop-blur-sm px-3 py-1 rounded-xl border border-white/20 shrink-0">
+                  ₦{Number(quiz.price).toLocaleString()}
+                </span>
+              )}
+            </div>
+            <h1 className="text-2xl font-bold leading-tight mb-2">
+              {quiz.title}
+            </h1>
+            {quiz.description && (
+              <p className="text-sm text-white/80 leading-relaxed mb-5">
+                {quiz.description}
+              </p>
             )}
+            {/* Stats grid - attempt count front & centre for buyers */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              <div className="bg-white/15 backdrop-blur-sm rounded-2xl px-3 py-3 border border-white/20 ring-2 ring-accent/50">
+                <div className="flex items-center gap-1.5 text-[11px] text-white/80 font-semibold mb-0.5">
+                  <TrendingUp size={11} className="text-green-300" />
+                  Attempts
+                </div>
+                <div className="text-lg font-extrabold text-white">
+                  {Number(quiz.attempt_count ?? 0).toLocaleString()}
+                </div>
+                <div className="text-[10px] text-white/70 mt-0.5">
+                  people already took it
+                </div>
+              </div>
+              <div className="bg-white/10 backdrop-blur-sm rounded-2xl px-3 py-3 border border-white/15">
+                <div className="flex items-center gap-1.5 text-[11px] text-white/80 font-semibold mb-0.5">
+                  <BookOpen size={11} className="text-sky-300" />
+                  Questions
+                </div>
+                <div className="text-lg font-extrabold text-white">
+                  {quiz.question_count ?? 0}
+                </div>
+                <div className="text-[10px] text-white/70 mt-0.5">
+                  multiple choice
+                </div>
+              </div>
+              <div className="bg-white/10 backdrop-blur-sm rounded-2xl px-3 py-3 border border-white/15">
+                <div className="flex items-center gap-1.5 text-[11px] text-white/80 font-semibold mb-0.5">
+                  <Clock size={11} className="text-amber-300" />
+                  Duration
+                </div>
+                <div className="text-lg font-extrabold text-white">
+                  {quiz.duration_minutes}
+                  <span className="text-xs font-semibold text-white/70 ml-0.5">
+                    min
+                  </span>
+                </div>
+                <div className="text-[10px] text-white/70 mt-0.5">
+                  time limit
+                </div>
+              </div>
+              <div className="bg-white/10 backdrop-blur-sm rounded-2xl px-3 py-3 border border-white/15">
+                <div className="flex items-center gap-1.5 text-[11px] text-white/80 font-semibold mb-0.5">
+                  <Target size={11} className="text-pink-300" />
+                  Pass mark
+                </div>
+                <div className="text-lg font-extrabold text-white">
+                  {quiz.pass_mark}
+                  <span className="text-xs font-semibold text-white/70 ml-0.5">
+                    %
+                  </span>
+                </div>
+                <div className="text-[10px] text-white/70 mt-0.5">
+                  score to pass
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
