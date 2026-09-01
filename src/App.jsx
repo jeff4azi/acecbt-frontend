@@ -17,7 +17,6 @@ import History from "./pages/student/History";
 import Profile from "./pages/student/Profile";
 
 // Admin pages
-import AdminLogin from "./pages/admin/Login";
 import AdminDashboard from "./pages/admin/Dashboard";
 import AdminQuizzes from "./pages/admin/Quizzes";
 import AdminQuizForm from "./pages/admin/QuizForm";
@@ -33,7 +32,6 @@ export default function App() {
           {/* Auth (no layout) */}
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
-          <Route path="/admin/login" element={<AdminLogin />} />
 
           {/* Quiz taking — full-screen, no nav chrome */}
           <Route path="/quiz/:quizId/take" element={<QuizTaking />} />

@@ -257,7 +257,7 @@ function AdminGateCTA() {
           </p>
         </div>
         <Link
-          to="/admin/login"
+          to="/login"
           className="block w-full bg-primary hover:bg-primary-dark text-white font-semibold py-3 rounded-2xl text-sm transition"
         >
           Sign In as Admin

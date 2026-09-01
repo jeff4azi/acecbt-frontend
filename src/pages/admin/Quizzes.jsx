@@ -1,6 +1,13 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Plus, Pencil, Trash2, BookOpen, Info, ShieldAlert } from "lucide-react";
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  BookOpen,
+  Info,
+  ShieldAlert,
+} from "lucide-react";
 import api from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
 
@@ -48,7 +55,7 @@ function AdminGateCTA() {
           </p>
         </div>
         <Link
-          to="/admin/login"
+          to="/login"
           className="block w-full bg-primary hover:bg-primary-dark text-white font-semibold py-3 rounded-2xl text-sm transition"
         >
           Sign In as Admin
