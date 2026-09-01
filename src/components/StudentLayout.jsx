@@ -1,6 +1,7 @@
-import { NavLink, Outlet } from "react-router-dom";
-import { Home, ListChecks, History, User } from "lucide-react";
+import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { Home, ListChecks, History, User, LogOut } from "lucide-react";
 import logo from "../assets/AceCbtLogo.png";
+import { useAuth } from "../context/AuthContext";
 
 const navItems = [
   { to: "/", label: "Home", icon: Home, end: true },
@@ -21,15 +22,40 @@ function bottomNavClass({ isActive }) {
   }`;
 }
 
+function getInitials(name) {
+  if (!name) return "?";
+  return name
+    .split(" ")
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase();
+}
+
 export default function StudentLayout() {
+  const { user, profile, signOut } = useAuth();
+  const navigate = useNavigate();
+
+  const displayName =
+    profile?.full_name ?? user?.user_metadata?.full_name ?? null;
+  const displayEmail = profile?.email ?? user?.email ?? "";
+
+  async function handleSignOut() {
+    await signOut();
+    navigate("/login", { replace: true });
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 md:flex">
-      {/* Desktop sidebar */}
-      <aside className="hidden md:flex md:flex-col md:w-60 md:shrink-0 border-r border-gray-200 bg-white p-4">
-        <div className="mb-6 px-2">
+      {/* Desktop sidebar — fixed height, no scroll */}
+      <aside className="hidden md:flex md:flex-col md:w-60 md:shrink-0 h-screen sticky top-0 border-r border-gray-200 bg-white overflow-hidden">
+        {/* Logo */}
+        <div className="px-6 py-5 shrink-0">
           <img src={logo} alt="Ace Edu CBT" className="h-9 w-auto" />
         </div>
-        <nav className="flex flex-col gap-1">
+
+        {/* Nav links */}
+        <nav className="flex flex-col gap-1 px-3 flex-1 overflow-hidden">
           {navItems.map(({ to, label, icon: Icon, end }) => (
             <NavLink key={to} to={to} end={end} className={navClass}>
               <Icon size={18} />
@@ -37,16 +63,58 @@ export default function StudentLayout() {
             </NavLink>
           ))}
         </nav>
+
+        {/* User + logout — pinned to bottom */}
+        <div className="shrink-0 px-3 pb-4 pt-3 border-t border-gray-100">
+          {user ? (
+            <>
+              {/* User info */}
+              <div className="flex items-center gap-3 px-3 py-2.5 mb-1 rounded-lg">
+                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                  <span className="text-xs font-bold text-primary">
+                    {getInitials(displayName)}
+                  </span>
+                </div>
+                <div className="min-w-0 flex-1">
+                  {displayName && (
+                    <p className="text-sm font-semibold text-gray-800 truncate leading-tight">
+                      {displayName}
+                    </p>
+                  )}
+                  <p className="text-[11px] text-gray-400 truncate leading-tight">
+                    {displayEmail}
+                  </p>
+                </div>
+              </div>
+
+              {/* Logout button */}
+              <button
+                onClick={handleSignOut}
+                className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium text-gray-500 hover:bg-red-50 hover:text-red-600 transition-colors"
+              >
+                <LogOut size={17} />
+                Sign out
+              </button>
+            </>
+          ) : (
+            <NavLink
+              to="/login"
+              className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium text-primary hover:bg-primary/10 transition-colors"
+            >
+              Sign in
+            </NavLink>
+          )}
+        </div>
       </aside>
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0">
         <main className="flex-1 pb-16 md:pb-0">
           <Outlet />
         </main>
 
         {/* Mobile bottom nav */}
-        <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex">
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex z-10">
           {navItems.map(({ to, label, icon: Icon, end }) => (
             <NavLink key={to} to={to} end={end} className={bottomNavClass}>
               <Icon size={20} />
