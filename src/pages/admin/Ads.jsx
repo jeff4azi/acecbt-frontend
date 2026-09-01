@@ -10,73 +10,7 @@ import {
 } from "lucide-react";
 import api from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
-import { supabase } from "../../lib/supabaseClient";
-import imageCompression from "browser-image-compression";
-
-// Real upload: compress to 80-250KB WebP then upload to Supabase Storage ad-images bucket
-async function uploadAdImage(file) {
-  if (file.size > 6 * 1024 * 1024) {
-    throw new Error(
-      "File too large (" +
-        Math.round(file.size / 1024 / 1024) +
-        " MB). Max 6MB before compression.",
-    );
-  }
-
-  let compressed;
-  try {
-    compressed = await imageCompression(file, {
-      maxSizeMB: 0.25,
-      maxWidthOrHeight: 1200,
-      useWebWorker: true,
-      fileType: "image/webp",
-      initialQuality: 0.8,
-    });
-  } catch {
-    compressed = file;
-  }
-
-  const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.webp`;
-
-  try {
-    const { error } = await supabase.storage
-      .from("ad-images")
-      .upload(path, compressed, {
-        contentType: "image/webp",
-        upsert: false,
-      });
-    if (error) {
-      if (
-        error.message &&
-        /(bucket|schema|not found|does not exist|permission|public|policy)/i.test(
-          error.message,
-        )
-      ) {
-        throw new Error(
-          "Storage bucket issue — make sure the 'ad-images' bucket exists in Supabase, is set to PUBLIC, and has RLS policies allowing insert/select. Raw: " +
-            error.message,
-        );
-      }
-      throw new Error(error.message);
-    }
-  } catch (uploadErr) {
-    const msg = uploadErr?.message || String(uploadErr);
-    if (
-      /(bucket|schema|not found|does not exist|permission|public|policy)/i.test(
-        msg,
-      )
-    ) {
-      throw new Error(
-        "Storage bucket issue — make sure the 'ad-images' bucket exists in Supabase, is set to PUBLIC, and has RLS policies allowing insert/select. Raw: " +
-          msg,
-      );
-    }
-    throw uploadErr;
-  }
-
-  const { data } = supabase.storage.from("ad-images").getPublicUrl(path);
-  return data.publicUrl;
-}
+import { uploadImage } from "../../lib/uploadImage";
 
 function truncateUrl(url, max = 40) {
   if (!url) return "";
@@ -136,7 +70,7 @@ function AdForm({ initial, onSave, onCancel }) {
     if (imageFile) {
       setUploading(true);
       try {
-        imageUrl = await uploadAdImage(imageFile);
+        imageUrl = await uploadImage(imageFile, "ad-images");
       } catch (err) {
         setError("Image upload failed: " + err.message);
         setUploading(false);

@@ -13,8 +13,7 @@ import {
 } from "lucide-react";
 import api from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
-import { supabase } from "../../lib/supabaseClient";
-import imageCompression from "browser-image-compression";
+import { uploadImage } from "../../lib/uploadImage";
 
 // ─── AI Prompt ────────────────────────────────────────────────────────────────
 
@@ -48,74 +47,6 @@ Rules you must follow exactly:
 Here are my questions:
 
 [PASTE YOUR QUESTIONS HERE]`;
-
-// ─── Image upload helper ──────────────────────────────────────────────────────
-
-const BUCKET_LABELS = {
-  "question-images": "Question images",
-  "option-images": "Answer-option images",
-  "ad-images": "Ad images",
-};
-
-async function uploadImage(file, bucket) {
-  if (file.size > 5 * 1024 * 1024) {
-    throw new Error(
-      `${BUCKET_LABELS[bucket] ?? bucket}: file too large (${Math.round(
-        file.size / 1024 / 1024,
-      )} MB). Max 5MB before compression.`,
-    );
-  }
-
-  let compressed;
-  try {
-    const widthCap = bucket === "option-images" ? 700 : 800;
-    compressed = await imageCompression(file, {
-      maxSizeMB: bucket === "option-images" ? 0.12 : 0.15,
-      maxWidthOrHeight: widthCap,
-      useWebWorker: true,
-      fileType: "image/webp",
-      initialQuality: 0.82,
-    });
-  } catch {
-    compressed = file;
-  }
-
-  const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.webp`;
-
-  try {
-    const { error } = await supabase.storage
-      .from(bucket)
-      .upload(path, compressed, { contentType: "image/webp", upsert: false });
-    if (error) {
-      const msg = error?.message || String(error);
-      if (
-        /(bucket|schema|not found|does not exist|permission|public|policy)/i.test(
-          msg,
-        )
-      ) {
-        throw new Error(
-          `Storage issue — make sure the '${bucket}' bucket exists in Supabase, is set to PUBLIC, and has RLS policies for insert/select. Raw: ${msg}`,
-        );
-      }
-      throw new Error(msg);
-    }
-  } catch (uploadErr) {
-    const msg = uploadErr?.message || String(uploadErr);
-    if (
-      /(bucket|schema|not found|does not exist|permission|public|policy)/i.test(
-        msg,
-      )
-    ) {
-      throw new Error(
-        `Storage issue — make sure the '${bucket}' bucket exists in Supabase, is set to PUBLIC, and has RLS policies for insert/select. Raw: ${msg}`,
-      );
-    }
-    throw uploadErr;
-  }
-
-  const { data } = supabase.storage.from(bucket).getPublicUrl(path);
-  return data.publicUrl;
-}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -422,7 +353,9 @@ function ManualForm({ onAdd, saving }) {
                       ref={(el) => (optImgRefs.current[idx] = el)}
                       type="file"
                       accept="image/*"
-                      onChange={(e) => handleOptionImage(idx, e.target.files[0])}
+                      onChange={(e) =>
+                        handleOptionImage(idx, e.target.files[0])
+                      }
                       className="hidden"
                     />
                   </label>
