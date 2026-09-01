@@ -1,6 +1,14 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
-import { Copy, Check, Plus, X, ShieldAlert } from "lucide-react";
+import {
+  Copy,
+  Check,
+  Plus,
+  X,
+  ShieldAlert,
+  ChevronDown,
+  Search,
+} from "lucide-react";
 import api from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
 
@@ -49,6 +57,114 @@ function formatDate(iso) {
     month: "short",
     year: "numeric",
   });
+}
+
+// ── Searchable quiz picker ────────────────────────────────────────────────────
+function QuizSearchSelect({ quizzes, value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const containerRef = useRef(null);
+  const inputRef = useRef(null);
+
+  const selected = quizzes.find((q) => q.id === value) ?? null;
+
+  const filtered = query.trim()
+    ? quizzes.filter((q) => q.title.toLowerCase().includes(query.toLowerCase()))
+    : quizzes;
+
+  // Close on outside click
+  useEffect(() => {
+    function handleClick(e) {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setOpen(false);
+        setQuery("");
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  function openDropdown() {
+    setOpen(true);
+    setQuery("");
+    setTimeout(() => inputRef.current?.focus(), 0);
+  }
+
+  function select(quiz) {
+    onChange(quiz.id);
+    setOpen(false);
+    setQuery("");
+  }
+
+  return (
+    <div ref={containerRef} className="relative flex-1">
+      {/* Trigger */}
+      <button
+        type="button"
+        onClick={openDropdown}
+        className="w-full flex items-center justify-between gap-2 px-4 py-2.5 rounded-xl border border-accent-light bg-white text-sm text-gray-700 hover:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition"
+      >
+        <span className="truncate text-left">
+          {selected ? selected.title : "Select a quiz…"}
+        </span>
+        <ChevronDown
+          size={15}
+          className={`shrink-0 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+
+      {/* Dropdown */}
+      {open && (
+        <div className="absolute z-30 mt-1.5 w-full bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
+          {/* Search input */}
+          <div className="flex items-center gap-2 px-3 py-2.5 border-b border-gray-100">
+            <Search size={14} className="text-gray-400 shrink-0" />
+            <input
+              ref={inputRef}
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search quizzes…"
+              className="flex-1 text-sm outline-none text-gray-700 placeholder-gray-400 bg-transparent"
+            />
+            {query && (
+              <button
+                onClick={() => setQuery("")}
+                className="text-gray-300 hover:text-gray-500 transition"
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
+
+          {/* Options list */}
+          <ul className="max-h-60 overflow-y-auto py-1">
+            {filtered.length === 0 ? (
+              <li className="px-4 py-3 text-sm text-gray-400 text-center">
+                No quizzes match "{query}"
+              </li>
+            ) : (
+              filtered.map((quiz) => (
+                <li key={quiz.id}>
+                  <button
+                    type="button"
+                    onClick={() => select(quiz)}
+                    className={`w-full text-left px-4 py-2.5 text-sm transition ${
+                      quiz.id === value
+                        ? "bg-primary text-white font-medium"
+                        : "text-gray-700 hover:bg-tint"
+                    }`}
+                  >
+                    {quiz.title}
+                  </button>
+                </li>
+              ))
+            )}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function AdminGateCTA() {
@@ -210,17 +326,11 @@ export default function Codes() {
 
         {/* Controls */}
         <div className="flex flex-col sm:flex-row gap-3 mb-6">
-          <select
+          <QuizSearchSelect
+            quizzes={quizzes}
             value={selectedQuizId}
-            onChange={(e) => setSelectedQuizId(e.target.value)}
-            className="flex-1 px-4 py-2.5 rounded-xl border border-accent-light bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm text-gray-700 appearance-none"
-          >
-            {quizzes.map((q) => (
-              <option key={q.id} value={q.id}>
-                {q.title}
-              </option>
-            ))}
-          </select>
+            onChange={setSelectedQuizId}
+          />
           <button
             onClick={() => setShowGenForm((v) => !v)}
             className="flex items-center gap-1.5 bg-primary hover:bg-primary-dark text-white font-semibold px-4 py-2.5 rounded-xl text-sm transition shadow-sm shrink-0"
