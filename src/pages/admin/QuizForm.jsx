@@ -17,7 +17,6 @@ import { useAuth } from "../../context/AuthContext";
 import { uploadImage } from "../../lib/uploadImage";
 
 // ─── AI Prompt ────────────────────────────────────────────────────────────────
-
 const AI_PROMPT = `You are formatting multiple-choice quiz questions into a strict JSON format for import into a CBT platform.
 
 Convert the questions I provide below into this exact JSON structure:
@@ -42,7 +41,7 @@ Rules you must follow exactly:
 2. Always set "question_image" and every option's "image" to null — do not invent URLs or descriptions.
 3. If no explanation is given or obvious, set "explanation" to null.
 4. Keep each question's options in the same order they were originally given.
-5. Output ONLY valid JSON — no markdown code fences, no commentary, no extra text before or after.
+5. Output the JSON wrapped in a single fenced code block (\`\`\`json ... \`\`\`) so it's easy to copy — no commentary, explanation, or extra text outside the code block.
 6. Do not skip, merge, reword, or reorder questions. Convert them exactly as given.
 
 Here are my questions:
@@ -554,18 +553,27 @@ function BulkImport({ onImport }) {
     });
   }
 
-  function parseJSON() {
-    setError("");
-    setParsed(null);
-    try {
-      const data = JSON.parse(jsonText);
-      if (!data.questions || !Array.isArray(data.questions))
-        throw new Error('Expected { "questions": [...] }');
-      setParsed(data.questions);
-    } catch (err) {
-      setError(`Invalid JSON: ${err.message}`);
-    }
+ function parseJSON() {
+  setError("");
+  setParsed(null);
+  try {
+    // Strip an optional fenced code block (```json ... ``` or plain ``` ... ```)
+    // wrapping the pasted text. If no fences are present, this is a no-op —
+    // trim() alone leaves plain JSON untouched.
+    const cleaned = jsonText
+      .trim()
+      .replace(/^```[a-zA-Z]*\n?/, "")
+      .replace(/```$/, "")
+      .trim();
+
+    const data = JSON.parse(cleaned);
+    if (!data.questions || !Array.isArray(data.questions))
+      throw new Error('Expected { "questions": [...] }');
+    setParsed(data.questions);
+  } catch (err) {
+    setError(`Invalid JSON: ${err.message}`);
   }
+}
 
   function importAll() {
     if (!parsed) return;
