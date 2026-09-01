@@ -1,18 +1,18 @@
 import { useState, useRef, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import {
   ClipboardCopy,
   Check,
-  Pencil,
   Trash2,
-  ImagePlus,
   Plus,
   X,
   ChevronDown,
   ChevronUp,
   AlertCircle,
+  ShieldAlert,
 } from "lucide-react";
 import api from "../../lib/api";
+import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabaseClient";
 import imageCompression from "browser-image-compression";
 
@@ -446,11 +446,46 @@ function BulkImport({ onImport }) {
   );
 }
 
+// ─── Admin Gate ───────────────────────────────────────────────────────────────
+
+function AdminGateCTA() {
+  return (
+    <div className="min-h-screen bg-tint flex items-center justify-center px-4">
+      <div className="bg-white rounded-2xl shadow-sm p-8 max-w-sm w-full text-center space-y-5">
+        <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto">
+          <ShieldAlert size={32} className="text-primary" />
+        </div>
+        <div>
+          <h1 className="text-xl font-bold text-primary-dark mb-1">
+            Admin Access Required
+          </h1>
+          <p className="text-sm text-gray-500">
+            Sign in with your admin account to create or edit quizzes.
+          </p>
+        </div>
+        <Link
+          to="/admin/login"
+          className="block w-full bg-primary hover:bg-primary-dark text-white font-semibold py-3 rounded-2xl text-sm transition"
+        >
+          Sign In as Admin
+        </Link>
+        <Link
+          to="/"
+          className="block w-full border-2 border-gray-200 text-gray-600 hover:bg-gray-50 font-semibold py-3 rounded-2xl text-sm transition"
+        >
+          Back to Home
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function QuizForm() {
   const { quizId } = useParams();
   const navigate = useNavigate();
+  const { authLoading, user } = useAuth();
   const isEditing = Boolean(quizId);
 
   const [details, setDetails] = useState({
@@ -472,13 +507,17 @@ export default function QuizForm() {
 
   // Load existing quiz when editing
   useEffect(() => {
+    if (authLoading) return;
+    if (!user) return;
     if (!isEditing) return;
+    let cancelled = false;
     async function load() {
       try {
         const [quizRes, questionsRes] = await Promise.all([
           api.get(`/quizzes/${quizId}`),
           api.get(`/quizzes/${quizId}/questions`),
         ]);
+        if (cancelled) return;
         const q = quizRes.data;
         setDetails({
           title: q.title,
@@ -490,11 +529,20 @@ export default function QuizForm() {
         });
         setExistingQs(questionsRes.data);
       } catch (err) {
-        console.error("QuizForm load error:", err);
+        if (cancelled) return;
+        const status = err?.response?.status;
+        if (status === 401 || status === 403) {
+          // interceptor handles session teardown + redirect
+        } else {
+          console.error("QuizForm load error:", err);
+        }
       }
     }
     load();
-  }, [quizId, isEditing]);
+    return () => {
+      cancelled = true;
+    };
+  }, [quizId, isEditing, authLoading, user]);
 
   // ── Save quiz details ─────────────────────────────────────────────────────
 
@@ -559,7 +607,12 @@ export default function QuizForm() {
       if (!isEditing)
         navigate(`/admin/quizzes/${savedQuiz.id}/edit`, { replace: true });
     } catch (err) {
-      setSaveError(err.response?.data?.error ?? "Failed to save quiz.");
+      const status = err?.response?.status;
+      if (status === 401 || status === 403) {
+        // interceptor handles
+      } else {
+        setSaveError(err.response?.data?.error ?? "Failed to save quiz.");
+      }
     } finally {
       setSaving(false);
     }
@@ -572,8 +625,25 @@ export default function QuizForm() {
       await api.delete(`/questions/${id}`);
       setExistingQs((prev) => prev.filter((q) => q.id !== id));
     } catch (err) {
-      console.error("Delete question error:", err);
+      const status = err?.response?.status;
+      if (status === 401 || status === 403) {
+        // interceptor handles
+      } else {
+        console.error("Delete question error:", err);
+      }
     }
+  }
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-tint flex items-center justify-center">
+        <span className="w-7 h-7 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <AdminGateCTA />;
   }
 
   return (

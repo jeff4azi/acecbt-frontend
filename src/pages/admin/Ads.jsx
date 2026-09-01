@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react";
-import { Plus, Pencil, Trash2, X, ExternalLink } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Plus, Pencil, Trash2, X, ExternalLink, ShieldAlert } from "lucide-react";
 import api from "../../lib/api";
+import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabaseClient";
 import imageCompression from "browser-image-compression";
 
@@ -148,19 +150,72 @@ function AdForm({ initial, onSave, onCancel }) {
   );
 }
 
+function AdminGateCTA() {
+  return (
+    <div className="min-h-screen bg-tint flex items-center justify-center px-4">
+      <div className="bg-white rounded-2xl shadow-sm p-8 max-w-sm w-full text-center space-y-5">
+        <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto">
+          <ShieldAlert size={32} className="text-primary" />
+        </div>
+        <div>
+          <h1 className="text-xl font-bold text-primary-dark mb-1">
+            Admin Access Required
+          </h1>
+          <p className="text-sm text-gray-500">
+            Sign in with your admin account to manage ads.
+          </p>
+        </div>
+        <Link
+          to="/admin/login"
+          className="block w-full bg-primary hover:bg-primary-dark text-white font-semibold py-3 rounded-2xl text-sm transition"
+        >
+          Sign In as Admin
+        </Link>
+        <Link
+          to="/"
+          className="block w-full border-2 border-gray-200 text-gray-600 hover:bg-gray-50 font-semibold py-3 rounded-2xl text-sm transition"
+        >
+          Back to Home
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 export default function Ads() {
+  const { authLoading, user } = useAuth();
   const [ads, setAds] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingAd, setEditingAd] = useState(null);
 
   useEffect(() => {
+    if (authLoading) return;
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
     api
       .get("/ads/admin")
-      .then((res) => setAds(res.data))
-      .catch((err) => console.error("Ads load error:", err))
-      .finally(() => setLoading(false));
-  }, []);
+      .then((res) => {
+        if (!cancelled) setAds(res.data);
+      })
+      .catch((err) => {
+        const status = err?.response?.status;
+        if (status === 401 || status === 403) {
+          // interceptor handles session teardown + redirect
+        } else {
+          console.error("Ads load error:", err);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, user]);
 
   async function toggleActive(ad) {
     try {
@@ -169,7 +224,12 @@ export default function Ads() {
       });
       setAds((prev) => prev.map((a) => (a.id === ad.id ? res.data : a)));
     } catch (err) {
-      console.error("Toggle ad error:", err);
+      const status = err?.response?.status;
+      if (status === 401 || status === 403) {
+        // interceptor handles
+      } else {
+        console.error("Toggle ad error:", err);
+      }
     }
   }
 
@@ -178,7 +238,12 @@ export default function Ads() {
       await api.delete(`/ads/${id}`);
       setAds((prev) => prev.filter((a) => a.id !== id));
     } catch (err) {
-      console.error("Delete ad error:", err);
+      const status = err?.response?.status;
+      if (status === 401 || status === 403) {
+        // interceptor handles
+      } else {
+        console.error("Delete ad error:", err);
+      }
     }
   }
 
@@ -202,16 +267,25 @@ export default function Ads() {
       setShowForm(false);
       setEditingAd(null);
     } catch (err) {
-      console.error("Save ad error:", err);
+      const status = err?.response?.status;
+      if (status === 401 || status === 403) {
+        // interceptor handles
+      } else {
+        console.error("Save ad error:", err);
+      }
     }
   }
 
-  if (loading) {
+  if (authLoading || (loading && user)) {
     return (
       <div className="min-h-screen bg-tint flex items-center justify-center">
         <span className="w-7 h-7 border-4 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
+  }
+
+  if (!user) {
+    return <AdminGateCTA />;
   }
 
   return (

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { Medal } from "lucide-react";
 import api from "../../lib/api";
@@ -36,13 +36,14 @@ function initials(name) {
 
 export default function Leaderboard() {
   const { quizId } = useParams();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
 
   const [leaderboard, setLeaderboard] = useState([]);
   const [quizTitle, setQuizTitle] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (authLoading) return;
     let cancelled = false;
     async function load() {
       try {
@@ -68,9 +69,9 @@ export default function Leaderboard() {
     return () => {
       cancelled = true;
     };
-  }, [quizId]);
+  }, [authLoading, quizId]);
 
-  if (loading) {
+  if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-tint flex items-center justify-center">
         <span className="w-7 h-7 border-4 border-primary border-t-transparent rounded-full animate-spin" />

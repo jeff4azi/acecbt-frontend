@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
-import { Check, AlertCircle } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Check, AlertCircle, ShieldAlert } from "lucide-react";
 import api from "../../lib/api";
+import { useAuth } from "../../context/AuthContext";
 
 function Field({ label, name, type = "text", value, onChange, placeholder }) {
   return (
@@ -20,7 +22,40 @@ function Field({ label, name, type = "text", value, onChange, placeholder }) {
   );
 }
 
+function AdminGateCTA() {
+  return (
+    <div className="min-h-screen bg-tint flex items-center justify-center px-4">
+      <div className="bg-white rounded-2xl shadow-sm p-8 max-w-sm w-full text-center space-y-5">
+        <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto">
+          <ShieldAlert size={32} className="text-primary" />
+        </div>
+        <div>
+          <h1 className="text-xl font-bold text-primary-dark mb-1">
+            Admin Access Required
+          </h1>
+          <p className="text-sm text-gray-500">
+            Sign in with your admin account to manage settings.
+          </p>
+        </div>
+        <Link
+          to="/admin/login"
+          className="block w-full bg-primary hover:bg-primary-dark text-white font-semibold py-3 rounded-2xl text-sm transition"
+        >
+          Sign In as Admin
+        </Link>
+        <Link
+          to="/"
+          className="block w-full border-2 border-gray-200 text-gray-600 hover:bg-gray-50 font-semibold py-3 rounded-2xl text-sm transition"
+        >
+          Back to Home
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 export default function Settings() {
+  const { authLoading, user } = useAuth();
   const [form, setForm] = useState({
     whatsapp_number: "",
     bank_name: "",
@@ -35,9 +70,16 @@ export default function Settings() {
   const [error, setError] = useState("");
 
   useEffect(() => {
+    if (authLoading) return;
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
     api
       .get("/settings")
       .then((res) => {
+        if (cancelled) return;
         const d = res.data;
         setForm({
           whatsapp_number: d.whatsapp_number ?? "",
@@ -48,14 +90,25 @@ export default function Settings() {
           contact_phone: d.contact_phone ?? "",
         });
       })
-      .catch((err) =>
-        setError(
-          "Failed to load settings: " +
-            (err.response?.data?.error ?? err.message),
-        ),
-      )
-      .finally(() => setLoading(false));
-  }, []);
+      .catch((err) => {
+        if (cancelled) return;
+        const status = err?.response?.status;
+        if (status === 401 || status === 403) {
+          // interceptor handles session teardown + redirect
+        } else {
+          setError(
+            "Failed to load settings: " +
+              (err.response?.data?.error ?? err.message),
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, user]);
 
   function handleChange(e) {
     const { name, value } = e.target;
@@ -72,18 +125,27 @@ export default function Settings() {
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (err) {
-      setError(err.response?.data?.error ?? "Failed to save settings.");
+      const status = err?.response?.status;
+      if (status === 401 || status === 403) {
+        // interceptor handles
+      } else {
+        setError(err.response?.data?.error ?? "Failed to save settings.");
+      }
     } finally {
       setSaving(false);
     }
   }
 
-  if (loading) {
+  if (authLoading || (loading && user)) {
     return (
       <div className="min-h-screen bg-tint flex items-center justify-center">
         <span className="w-7 h-7 border-4 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
+  }
+
+  if (!user) {
+    return <AdminGateCTA />;
   }
 
   return (
