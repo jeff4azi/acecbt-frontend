@@ -183,7 +183,7 @@ function AdminGateCTA() {
 }
 
 export default function Ads() {
-  const { authLoading, user } = useAuth();
+  const { authLoading, user, isAdmin } = useAuth();
   const [ads, setAds] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -191,7 +191,7 @@ export default function Ads() {
 
   useEffect(() => {
     if (authLoading) return;
-    if (!user) {
+    if (!user || !isAdmin) {
       setLoading(false);
       return;
     }
@@ -215,7 +215,7 @@ export default function Ads() {
     return () => {
       cancelled = true;
     };
-  }, [authLoading, user]);
+  }, [authLoading, user, isAdmin]);
 
   async function toggleActive(ad) {
     try {
@@ -276,7 +276,7 @@ export default function Ads() {
     }
   }
 
-  if (authLoading || (loading && user)) {
+  if (authLoading || (loading && isAdmin)) {
     return (
       <div className="min-h-screen bg-tint flex items-center justify-center">
         <span className="w-7 h-7 border-4 border-primary border-t-transparent rounded-full animate-spin" />
@@ -284,7 +284,7 @@ export default function Ads() {
     );
   }
 
-  if (!user) {
+  if (!user || !isAdmin) {
     return <AdminGateCTA />;
   }
 

@@ -65,7 +65,7 @@ function AdminGateCTA() {
 }
 
 export default function Quizzes() {
-  const { authLoading, user } = useAuth();
+  const { authLoading, user, isAdmin } = useAuth();
   const [quizzes, setQuizzes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [toDelete, setToDelete] = useState(null);
@@ -73,7 +73,7 @@ export default function Quizzes() {
 
   useEffect(() => {
     if (authLoading) return;
-    if (!user) {
+    if (!user || !isAdmin) {
       setLoading(false);
       return;
     }
@@ -97,7 +97,7 @@ export default function Quizzes() {
     return () => {
       cancelled = true;
     };
-  }, [authLoading, user]);
+  }, [authLoading, user, isAdmin]);
 
   async function confirmDelete() {
     setDeleteError("");
@@ -116,7 +116,7 @@ export default function Quizzes() {
     }
   }
 
-  if (authLoading || (loading && user)) {
+  if (authLoading || (loading && isAdmin)) {
     return (
       <div className="min-h-screen bg-tint flex items-center justify-center">
         <span className="w-7 h-7 border-4 border-primary border-t-transparent rounded-full animate-spin" />
@@ -124,7 +124,7 @@ export default function Quizzes() {
     );
   }
 
-  if (!user) {
+  if (!user || !isAdmin) {
     return <AdminGateCTA />;
   }
 

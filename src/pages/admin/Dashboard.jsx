@@ -76,13 +76,13 @@ function AdminGateCTA() {
 }
 
 export default function Dashboard() {
-  const { authLoading, user } = useAuth();
+  const { authLoading, user, isAdmin } = useAuth();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (authLoading) return;
-    if (!user) {
+    if (!user || !isAdmin) {
       setLoading(false);
       return;
     }
@@ -106,9 +106,9 @@ export default function Dashboard() {
     return () => {
       cancelled = true;
     };
-  }, [authLoading, user]);
+  }, [authLoading, user, isAdmin]);
 
-  if (authLoading || (loading && user)) {
+  if (authLoading || (loading && isAdmin)) {
     return (
       <div className="min-h-screen bg-tint flex items-center justify-center">
         <span className="w-7 h-7 border-4 border-primary border-t-transparent rounded-full animate-spin" />
@@ -116,7 +116,7 @@ export default function Dashboard() {
     );
   }
 
-  if (!user) {
+  if (!user || !isAdmin) {
     return <AdminGateCTA />;
   }
 

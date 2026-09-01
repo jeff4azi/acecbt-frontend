@@ -84,7 +84,7 @@ function AdminGateCTA() {
 }
 
 export default function Codes() {
-  const { authLoading, user } = useAuth();
+  const { authLoading, user, isAdmin } = useAuth();
   const [quizzes, setQuizzes] = useState([]);
   const [selectedQuizId, setSelectedQuizId] = useState("");
   const [codes, setCodes] = useState([]);
@@ -95,7 +95,7 @@ export default function Codes() {
 
   useEffect(() => {
     if (authLoading) return;
-    if (!user) return;
+    if (!user || !isAdmin) return;
     let cancelled = false;
     api
       .get("/quizzes/admin")
@@ -115,10 +115,10 @@ export default function Codes() {
     return () => {
       cancelled = true;
     };
-  }, [authLoading, user]);
+  }, [authLoading, user, isAdmin]);
 
   useEffect(() => {
-    if (!selectedQuizId || !user) return;
+    if (!selectedQuizId || !user || !isAdmin) return;
     let cancelled = false;
     setLoadingCodes(true);
     api
@@ -140,7 +140,7 @@ export default function Codes() {
     return () => {
       cancelled = true;
     };
-  }, [selectedQuizId, user]);
+  }, [selectedQuizId, user, isAdmin]);
 
   async function generateCodes() {
     setGenerating(true);
@@ -179,7 +179,7 @@ export default function Codes() {
     }
   }
 
-  if (authLoading) {
+  if (authLoading || (loadingCodes && isAdmin)) {
     return (
       <div className="min-h-screen bg-tint flex items-center justify-center">
         <span className="w-7 h-7 border-4 border-primary border-t-transparent rounded-full animate-spin" />
@@ -187,7 +187,7 @@ export default function Codes() {
     );
   }
 
-  if (!user) {
+  if (!user || !isAdmin) {
     return <AdminGateCTA />;
   }
 

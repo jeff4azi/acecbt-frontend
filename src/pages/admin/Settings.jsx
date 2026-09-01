@@ -55,7 +55,7 @@ function AdminGateCTA() {
 }
 
 export default function Settings() {
-  const { authLoading, user } = useAuth();
+  const { authLoading, user, isAdmin } = useAuth();
   const [form, setForm] = useState({
     whatsapp_number: "",
     bank_name: "",
@@ -71,7 +71,7 @@ export default function Settings() {
 
   useEffect(() => {
     if (authLoading) return;
-    if (!user) {
+    if (!user || !isAdmin) {
       setLoading(false);
       return;
     }
@@ -108,7 +108,7 @@ export default function Settings() {
     return () => {
       cancelled = true;
     };
-  }, [authLoading, user]);
+  }, [authLoading, user, isAdmin]);
 
   function handleChange(e) {
     const { name, value } = e.target;
@@ -136,7 +136,7 @@ export default function Settings() {
     }
   }
 
-  if (authLoading || (loading && user)) {
+  if (authLoading || (loading && isAdmin)) {
     return (
       <div className="min-h-screen bg-tint flex items-center justify-center">
         <span className="w-7 h-7 border-4 border-primary border-t-transparent rounded-full animate-spin" />
@@ -144,7 +144,7 @@ export default function Settings() {
     );
   }
 
-  if (!user) {
+  if (!user || !isAdmin) {
     return <AdminGateCTA />;
   }
 

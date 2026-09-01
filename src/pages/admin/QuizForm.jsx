@@ -485,7 +485,7 @@ function AdminGateCTA() {
 export default function QuizForm() {
   const { quizId } = useParams();
   const navigate = useNavigate();
-  const { authLoading, user } = useAuth();
+  const { authLoading, user, isAdmin } = useAuth();
   const isEditing = Boolean(quizId);
 
   const [details, setDetails] = useState({
@@ -508,7 +508,7 @@ export default function QuizForm() {
   // Load existing quiz when editing
   useEffect(() => {
     if (authLoading) return;
-    if (!user) return;
+    if (!user || !isAdmin) return;
     if (!isEditing) return;
     let cancelled = false;
     async function load() {
@@ -542,7 +542,7 @@ export default function QuizForm() {
     return () => {
       cancelled = true;
     };
-  }, [quizId, isEditing, authLoading, user]);
+  }, [quizId, isEditing, authLoading, user, isAdmin]);
 
   // ── Save quiz details ─────────────────────────────────────────────────────
 
@@ -642,7 +642,7 @@ export default function QuizForm() {
     );
   }
 
-  if (!user) {
+  if (!user || !isAdmin) {
     return <AdminGateCTA />;
   }
 
