@@ -88,6 +88,7 @@ export default function Codes() {
   const [quizzes, setQuizzes] = useState([]);
   const [selectedQuizId, setSelectedQuizId] = useState("");
   const [codes, setCodes] = useState([]);
+  const [loadingQuizzes, setLoadingQuizzes] = useState(true);
   const [loadingCodes, setLoadingCodes] = useState(false);
   const [showGenForm, setShowGenForm] = useState(false);
   const [genQty, setGenQty] = useState(20);
@@ -95,7 +96,10 @@ export default function Codes() {
 
   useEffect(() => {
     if (authLoading) return;
-    if (!user || !isAdmin) return;
+    if (!user || !isAdmin) {
+      setLoadingQuizzes(false);
+      return;
+    }
     let cancelled = false;
     api
       .get("/quizzes/admin")
@@ -106,11 +110,12 @@ export default function Codes() {
       })
       .catch((err) => {
         const status = err?.response?.status;
-        if (status === 401 || status === 403) {
-          // interceptor handles
-        } else {
+        if (status !== 401 && status !== 403) {
           console.error("Codes: quiz list error:", err);
         }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingQuizzes(false);
       });
     return () => {
       cancelled = true;
@@ -179,7 +184,7 @@ export default function Codes() {
     }
   }
 
-  if (authLoading || (loadingCodes && isAdmin)) {
+  if (authLoading || loadingQuizzes) {
     return (
       <div className="min-h-screen bg-tint flex items-center justify-center">
         <span className="w-7 h-7 border-4 border-primary border-t-transparent rounded-full animate-spin" />

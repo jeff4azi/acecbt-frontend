@@ -136,7 +136,7 @@ export default function Settings() {
     }
   }
 
-  if (authLoading || (loading && isAdmin)) {
+  if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-tint flex items-center justify-center">
         <span className="w-7 h-7 border-4 border-primary border-t-transparent rounded-full animate-spin" />
