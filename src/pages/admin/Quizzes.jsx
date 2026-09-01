@@ -7,6 +7,8 @@ import {
   BookOpen,
   Info,
   ShieldAlert,
+  Search,
+  X,
 } from "lucide-react";
 import api from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
@@ -75,6 +77,7 @@ export default function Quizzes() {
   const { authLoading, user, isAdmin } = useAuth();
   const [quizzes, setQuizzes] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
   const [toDelete, setToDelete] = useState(null);
   const [deleteError, setDeleteError] = useState("");
 
@@ -138,22 +141,51 @@ export default function Quizzes() {
   // We don't have has_attempts from the list endpoint — the backend blocks delete
   // server-side and returns a 400 error, which we surface as deleteError below.
 
+  const filtered = query.trim()
+    ? quizzes.filter((q) => q.title.toLowerCase().includes(query.toLowerCase()))
+    : quizzes;
+
   return (
     <div className="min-h-screen bg-tint">
       <div className="max-w-4xl mx-auto px-4 pt-6 pb-10">
-        <div className="flex items-center justify-between mb-6">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-4">
           <div>
             <h1 className="text-2xl font-bold text-primary-dark">Quizzes</h1>
             <p className="text-sm text-gray-500 mt-1">
-              {quizzes.length} quiz{quizzes.length !== 1 ? "zes" : ""} total
+              {filtered.length} of {quizzes.length} quiz
+              {quizzes.length !== 1 ? "zes" : ""}
             </p>
           </div>
           <Link
             to="/admin/quizzes/new"
-            className="flex items-center gap-1.5 bg-primary hover:bg-primary-dark text-white font-semibold px-4 py-2.5 rounded-xl text-sm transition shadow-sm"
+            className="flex items-center gap-1.5 bg-primary hover:bg-primary-dark text-white font-semibold px-4 py-2.5 rounded-xl text-sm transition shadow-sm shrink-0"
           >
             <Plus size={16} /> New Quiz
           </Link>
+        </div>
+
+        {/* Search bar */}
+        <div className="relative mb-6">
+          <Search
+            size={15}
+            className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+          />
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search quizzes…"
+            className="w-full pl-9 pr-9 py-2.5 rounded-xl border border-accent-light bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm text-gray-700 placeholder-gray-400 transition"
+          />
+          {query && (
+            <button
+              onClick={() => setQuery("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500 transition"
+            >
+              <X size={15} />
+            </button>
+          )}
         </div>
 
         {deleteError && (
@@ -185,7 +217,7 @@ export default function Quizzes() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {quizzes.map((quiz) => (
+              {filtered.map((quiz) => (
                 <tr key={quiz.id} className="hover:bg-gray-50/60 transition">
                   <td className="px-5 py-4 font-medium text-gray-900 text-sm">
                     {quiz.title}
@@ -228,13 +260,13 @@ export default function Quizzes() {
                   </td>
                 </tr>
               ))}
-              {quizzes.length === 0 && (
+              {filtered.length === 0 && (
                 <tr>
                   <td
                     colSpan={5}
                     className="px-5 py-12 text-center text-sm text-gray-400"
                   >
-                    No quizzes yet.
+                    {query ? `No quizzes match "${query}"` : "No quizzes yet."}
                   </td>
                 </tr>
               )}
@@ -244,7 +276,7 @@ export default function Quizzes() {
 
         {/* Mobile cards */}
         <div className="md:hidden space-y-3">
-          {quizzes.map((quiz) => (
+          {filtered.map((quiz) => (
             <div key={quiz.id} className="bg-white rounded-2xl shadow-sm p-4">
               <div className="flex items-start justify-between gap-2 mb-2">
                 <h3 className="font-semibold text-gray-900 text-sm leading-snug">
@@ -285,9 +317,9 @@ export default function Quizzes() {
               </div>
             </div>
           ))}
-          {quizzes.length === 0 && (
+          {filtered.length === 0 && (
             <p className="text-center text-sm text-gray-400 py-12">
-              No quizzes yet.
+              {query ? `No quizzes match "${query}"` : "No quizzes yet."}
             </p>
           )}
         </div>
