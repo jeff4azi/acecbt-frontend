@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
-import { Copy, Check, Plus, X } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Copy, Check, Plus, X, ShieldAlert } from "lucide-react";
 import api from "../../lib/api";
+import { useAuth } from "../../context/AuthContext";
 
 function CopyButton({ text }) {
   const [copied, setCopied] = useState(false);
@@ -49,7 +51,40 @@ function formatDate(iso) {
   });
 }
 
+function AdminGateCTA() {
+  return (
+    <div className="min-h-screen bg-tint flex items-center justify-center px-4">
+      <div className="bg-white rounded-2xl shadow-sm p-8 max-w-sm w-full text-center space-y-5">
+        <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto">
+          <ShieldAlert size={32} className="text-primary" />
+        </div>
+        <div>
+          <h1 className="text-xl font-bold text-primary-dark mb-1">
+            Admin Access Required
+          </h1>
+          <p className="text-sm text-gray-500">
+            Sign in with your admin account to manage access codes.
+          </p>
+        </div>
+        <Link
+          to="/admin/login"
+          className="block w-full bg-primary hover:bg-primary-dark text-white font-semibold py-3 rounded-2xl text-sm transition"
+        >
+          Sign In as Admin
+        </Link>
+        <Link
+          to="/"
+          className="block w-full border-2 border-gray-200 text-gray-600 hover:bg-gray-50 font-semibold py-3 rounded-2xl text-sm transition"
+        >
+          Back to Home
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 export default function Codes() {
+  const { authLoading, user } = useAuth();
   const [quizzes, setQuizzes] = useState([]);
   const [selectedQuizId, setSelectedQuizId] = useState("");
   const [codes, setCodes] = useState([]);
@@ -58,27 +93,54 @@ export default function Codes() {
   const [genQty, setGenQty] = useState(20);
   const [generating, setGenerating] = useState(false);
 
-  // Load quiz list
   useEffect(() => {
+    if (authLoading) return;
+    if (!user) return;
+    let cancelled = false;
     api
       .get("/quizzes/admin")
       .then((res) => {
+        if (cancelled) return;
         setQuizzes(res.data);
         if (res.data.length) setSelectedQuizId(res.data[0].id);
       })
-      .catch((err) => console.error("Codes: quiz list error:", err));
-  }, []);
+      .catch((err) => {
+        const status = err?.response?.status;
+        if (status === 401 || status === 403) {
+          // interceptor handles
+        } else {
+          console.error("Codes: quiz list error:", err);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, user]);
 
-  // Load codes when quiz changes
   useEffect(() => {
-    if (!selectedQuizId) return;
+    if (!selectedQuizId || !user) return;
+    let cancelled = false;
     setLoadingCodes(true);
     api
       .get(`/quizzes/${selectedQuizId}/codes`)
-      .then((res) => setCodes(res.data))
-      .catch((err) => console.error("Codes load error:", err))
-      .finally(() => setLoadingCodes(false));
-  }, [selectedQuizId]);
+      .then((res) => {
+        if (!cancelled) setCodes(res.data);
+      })
+      .catch((err) => {
+        const status = err?.response?.status;
+        if (status === 401 || status === 403) {
+          // interceptor handles
+        } else {
+          console.error("Codes load error:", err);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingCodes(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedQuizId, user]);
 
   async function generateCodes() {
     setGenerating(true);
@@ -90,7 +152,12 @@ export default function Codes() {
       setShowGenForm(false);
       setGenQty(20);
     } catch (err) {
-      console.error("Generate codes error:", err);
+      const status = err?.response?.status;
+      if (status === 401 || status === 403) {
+        // interceptor handles
+      } else {
+        console.error("Generate codes error:", err);
+      }
     } finally {
       setGenerating(false);
     }
@@ -103,8 +170,25 @@ export default function Codes() {
         prev.map((c) => (c.id === id ? { ...c, status: res.data.status } : c)),
       );
     } catch (err) {
-      console.error("Revoke error:", err);
+      const status = err?.response?.status;
+      if (status === 401 || status === 403) {
+        // interceptor handles
+      } else {
+        console.error("Revoke error:", err);
+      }
     }
+  }
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-tint flex items-center justify-center">
+        <span className="w-7 h-7 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <AdminGateCTA />;
   }
 
   const unusedCount = codes.filter((c) => c.status === "unused").length;

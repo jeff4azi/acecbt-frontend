@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import {
   Users,
   BookOpen,
@@ -7,8 +8,10 @@ import {
   TrendingUp,
   Star,
   Clock,
+  ShieldAlert,
 } from "lucide-react";
 import api from "../../lib/api";
+import { useAuth } from "../../context/AuthContext";
 
 function relativeTime(ts) {
   const diff = Date.now() - new Date(ts).getTime();
@@ -40,24 +43,81 @@ function StatCard({ icon: Icon, label, value, iconBg, iconColor, sub }) {
   );
 }
 
+function AdminGateCTA() {
+  return (
+    <div className="min-h-screen bg-tint flex items-center justify-center px-4">
+      <div className="bg-white rounded-2xl shadow-sm p-8 max-w-sm w-full text-center space-y-5">
+        <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto">
+          <ShieldAlert size={32} className="text-primary" />
+        </div>
+        <div>
+          <h1 className="text-xl font-bold text-primary-dark mb-1">
+            Admin Access Required
+          </h1>
+          <p className="text-sm text-gray-500">
+            Sign in with your admin account to view the dashboard.
+          </p>
+        </div>
+        <Link
+          to="/admin/login"
+          className="block w-full bg-primary hover:bg-primary-dark text-white font-semibold py-3 rounded-2xl text-sm transition"
+        >
+          Sign In as Admin
+        </Link>
+        <Link
+          to="/"
+          className="block w-full border-2 border-gray-200 text-gray-600 hover:bg-gray-50 font-semibold py-3 rounded-2xl text-sm transition"
+        >
+          Back to Home
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
+  const { authLoading, user } = useAuth();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (authLoading) return;
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
     api
       .get("/dashboard")
-      .then((res) => setData(res.data))
-      .catch((err) => console.error("Dashboard load error:", err))
-      .finally(() => setLoading(false));
-  }, []);
+      .then((res) => {
+        if (!cancelled) setData(res.data);
+      })
+      .catch((err) => {
+        const status = err?.response?.status;
+        if (status === 401 || status === 403) {
+          // interceptor handles session teardown + redirect
+        } else {
+          console.error("Dashboard load error:", err);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, user]);
 
-  if (loading) {
+  if (authLoading || (loading && user)) {
     return (
       <div className="min-h-screen bg-tint flex items-center justify-center">
         <span className="w-7 h-7 border-4 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
+  }
+
+  if (!user) {
+    return <AdminGateCTA />;
   }
 
   if (!data) {

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { Lock, Unlock, Clock, BookOpen, ChevronRight } from "lucide-react";
+import { useAuth } from "../../context/AuthContext";
 import api from "../../lib/api";
 
 // ─── Ad Banner ────────────────────────────────────────────────────────────────
@@ -127,6 +128,7 @@ function RecentCard({ attempt }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Home() {
+  const { user, loading: authLoading } = useAuth();
   const [ads, setAds] = useState([]);
   const [quizzes, setQuizzes] = useState([]);
   const [unlockedIds, setUnlockedIds] = useState(new Set());
@@ -134,22 +136,30 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (authLoading) return;
+    let cancelled = false;
+
     async function load() {
       try {
-        const [adsRes, quizzesRes, unlockedRes, historyRes] = await Promise.all(
-          [
-            api.get("/ads"),
-            api.get("/quizzes"),
+        const reqs = [];
+        reqs.push(api.get("/ads"));
+        reqs.push(api.get("/quizzes"));
+        if (user) {
+          reqs.push(
             api.get("/unlocked").catch(() => ({ data: [] })),
             api.get("/history").catch(() => ({ data: [] })),
-          ],
-        );
+          );
+        } else {
+          reqs.push(Promise.resolve({ data: [] }), Promise.resolve({ data: [] }));
+        }
 
-        setAds(adsRes.data);
-        setQuizzes(quizzesRes.data);
+        const [adsRes, quizzesRes, unlockedRes, historyRes] = await Promise.all(reqs);
+        if (cancelled) return;
+
+        setAds(adsRes.data ?? []);
+        setQuizzes(quizzesRes.data ?? []);
         setUnlockedIds(new Set((unlockedRes.data ?? []).map((u) => u.quiz_id)));
 
-        // Build "continue" row: get the most recent attempt per quiz (max 3)
         const seen = new Set();
         const recent = [];
         for (const a of historyRes.data ?? []) {
@@ -162,23 +172,29 @@ export default function Home() {
         }
         setRecentAttempts(recent);
       } catch (err) {
+        if (cancelled) return;
+        if (err?.response?.status === 401) {
+          /* handled globally by the api interceptor */
+          return;
+        }
         console.error("Home load error:", err);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
     load();
-  }, []);
 
-  // Enrich quizzes with question count (not returned by list endpoint — we just show
-  // duration + price from the quiz row; question count needs a separate call which
-  // is expensive, so we omit it on the home page list).
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, user]);
+
   const enriched = quizzes.map((q) => ({
     ...q,
     is_unlocked: unlockedIds.has(q.id),
   }));
 
-  if (loading) {
+  if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-tint flex items-center justify-center">
         <span className="w-7 h-7 border-4 border-primary border-t-transparent rounded-full animate-spin" />

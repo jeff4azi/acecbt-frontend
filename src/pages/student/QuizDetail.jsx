@@ -9,7 +9,9 @@ import {
   Trophy,
   Play,
   AlertCircle,
+  LogIn,
 } from "lucide-react";
+import { useAuth } from "../../context/AuthContext";
 import api from "../../lib/api";
 
 function useCopyToClipboard(text, timeout = 2000) {
@@ -26,6 +28,7 @@ function useCopyToClipboard(text, timeout = 2000) {
 export default function QuizDetail() {
   const { quizId } = useParams();
   const navigate = useNavigate();
+  const { user, loading: authLoading } = useAuth();
 
   const [quiz, setQuiz] = useState(null);
   const [settings, setSettings] = useState(null);
@@ -40,27 +43,41 @@ export default function QuizDetail() {
   const { copied, copy } = useCopyToClipboard(settings?.account_number ?? "");
 
   useEffect(() => {
+    if (authLoading) return;
+    let cancelled = false;
+
     async function load() {
       try {
+        const unlockedReq = user
+          ? api
+              .get(`/unlocked/${quizId}`)
+              .catch(() => ({ data: { unlocked: false } }))
+          : Promise.resolve({ data: { unlocked: false } });
+
         const [quizRes, settingsRes, unlockedRes] = await Promise.all([
           api.get(`/quizzes/${quizId}`),
           api.get("/settings"),
-          api
-            .get(`/unlocked/${quizId}`)
-            .catch(() => ({ data: { unlocked: false } })),
+          unlockedReq,
         ]);
+        if (cancelled) return;
         setQuiz(quizRes.data);
         setSettings(settingsRes.data);
         setIsUnlocked(unlockedRes.data?.unlocked ?? false);
       } catch (err) {
+        if (cancelled) return;
+        if (err?.response?.status === 401) return;
         setError("Failed to load quiz details. Please try again.");
         console.error(err);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
     load();
-  }, [quizId]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, user, quizId]);
 
   async function handleRedeem(e) {
     e.preventDefault();
@@ -71,6 +88,10 @@ export default function QuizDetail() {
       await api.post(`/quizzes/${quizId}/redeem`, { code: accessCode.trim() });
       setIsUnlocked(true);
     } catch (err) {
+      if (err?.response?.status === 401) {
+        /* session termination handled by interceptor */
+        return;
+      }
       setRedeemError(
         err.response?.data?.error ?? "Invalid or already-used code.",
       );
@@ -85,7 +106,7 @@ export default function QuizDetail() {
     return `https://wa.me/${settings.whatsapp_number}?text=${encodeURIComponent(msg)}`;
   }
 
-  if (loading) {
+  if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-tint flex items-center justify-center">
         <span className="w-7 h-7 border-4 border-primary border-t-transparent rounded-full animate-spin" />
@@ -173,6 +194,28 @@ export default function QuizDetail() {
         ) : (
           /* ── Locked state ── */
           <div className="space-y-4">
+            {!user ? (
+              <div className="bg-white rounded-2xl shadow-sm p-6 border-2 border-primary/20 flex items-center gap-4">
+                <div className="w-12 h-12 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                  <LogIn size={22} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h2 className="font-bold text-gray-800 text-sm mb-0.5">
+                    Sign in to unlock with an access code
+                  </h2>
+                  <p className="text-xs text-gray-500">
+                    Or pay via the details below and request access.
+                  </p>
+                </div>
+                <button
+                  onClick={() => navigate("/login")}
+                  className="bg-primary hover:bg-primary-dark text-white font-semibold px-4 py-2 rounded-xl text-sm transition shrink-0"
+                >
+                  Sign In
+                </button>
+              </div>
+            ) : null}
+
             {settings && (
               <div className="bg-white rounded-2xl shadow-sm p-5 space-y-4">
                 <h2 className="font-bold text-gray-800">Payment Details</h2>
@@ -241,11 +284,12 @@ export default function QuizDetail() {
                   onChange={(e) => setAccessCode(e.target.value.toUpperCase())}
                   placeholder="ACE-XXXXXX"
                   maxLength={10}
-                  className="flex-1 px-4 py-2.5 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm font-mono tracking-widest uppercase"
+                  disabled={!user}
+                  className="flex-1 px-4 py-2.5 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm font-mono tracking-widest uppercase disabled:bg-gray-50 disabled:cursor-not-allowed"
                 />
                 <button
                   type="submit"
-                  disabled={redeemLoading}
+                  disabled={redeemLoading || !user}
                   className="bg-primary hover:bg-primary-dark text-white font-semibold px-5 py-2.5 rounded-xl text-sm transition disabled:opacity-60 flex items-center gap-1.5"
                 >
                   {redeemLoading && (

@@ -1,6 +1,12 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { LogOut, BookOpen, TrendingUp, CheckCircle } from "lucide-react";
+import {
+  LogOut,
+  BookOpen,
+  TrendingUp,
+  CheckCircle,
+  LogIn,
+} from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import api from "../../lib/api";
 
@@ -12,7 +18,7 @@ function getInitials(name) {
 }
 
 export default function Profile() {
-  const { user, signOut } = useAuth();
+  const { user, signOut, loading: authLoading } = useAuth();
   const navigate = useNavigate();
 
   const [stats, setStats] = useState({
@@ -21,14 +27,18 @@ export default function Profile() {
     average_score: 0,
   });
 
-  // Pull real stats: unlocked count + attempt history
   useEffect(() => {
+    if (authLoading) return;
+    if (!user) return;
+    let cancelled = false;
+
     async function load() {
       try {
         const [unlockedRes, historyRes] = await Promise.all([
           api.get("/unlocked").catch(() => ({ data: [] })),
           api.get("/history").catch(() => ({ data: [] })),
         ]);
+        if (cancelled) return;
         const unlocked = unlockedRes.data ?? [];
         const history = historyRes.data ?? [];
         const avgScore = history.length
@@ -42,11 +52,17 @@ export default function Profile() {
           average_score: avgScore,
         });
       } catch (err) {
+        if (cancelled) return;
+        if (err?.response?.status === 401) return;
         console.error("Profile stats error:", err);
       }
     }
     load();
-  }, []);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, user]);
 
   const email = user?.email ?? "—";
   const fullName = user?.user_metadata?.full_name ?? "Student";
@@ -54,6 +70,40 @@ export default function Profile() {
   async function handleSignOut() {
     await signOut();
     navigate("/login", { replace: true });
+  }
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-tint flex items-center justify-center">
+        <span className="w-7 h-7 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-tint flex items-center justify-center p-4">
+        <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm p-8 text-center space-y-5">
+          <div className="w-16 h-16 rounded-full bg-primary/10 text-primary flex items-center justify-center mx-auto">
+            <LogIn size={28} />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-gray-800 mb-1">
+              Sign in to view your profile
+            </h2>
+            <p className="text-sm text-gray-500">
+              Your stats are saved with your account.
+            </p>
+          </div>
+          <button
+            onClick={() => navigate("/login", { replace: true })}
+            className="w-full bg-primary hover:bg-primary-dark text-white font-semibold py-3 rounded-xl transition text-sm"
+          >
+            Sign In
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (

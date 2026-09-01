@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
-import { CheckCircle, XCircle, BookOpen, Clock } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { CheckCircle, XCircle, BookOpen, Clock, LogIn } from "lucide-react";
+import { useAuth } from "../../context/AuthContext";
 import api from "../../lib/api";
 
 function formatDate(iso) {
@@ -12,21 +13,76 @@ function formatDate(iso) {
 }
 
 export default function History() {
+  const navigate = useNavigate();
+  const { user, loading: authLoading } = useAuth();
   const [attempts, setAttempts] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (authLoading) return;
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+
     api
       .get("/history")
-      .then((res) => setAttempts(res.data))
-      .catch((err) => console.error("History load error:", err))
-      .finally(() => setLoading(false));
-  }, []);
+      .then((res) => {
+        if (!cancelled) setAttempts(res.data ?? []);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        if (err?.response?.status === 401) return;
+        console.error("History load error:", err);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
 
-  if (loading) {
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, user]);
+
+  if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-tint flex items-center justify-center">
         <span className="w-7 h-7 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-tint flex items-center justify-center p-4">
+        <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm p-8 text-center space-y-5">
+          <div className="w-16 h-16 rounded-full bg-primary/10 text-primary flex items-center justify-center mx-auto">
+            <LogIn size={28} />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-gray-800 mb-1">
+              Sign in to see your history
+            </h2>
+            <p className="text-sm text-gray-500">
+              Your past quiz attempts are stored with your account.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={() => navigate("/login", { replace: true })}
+              className="w-full bg-primary hover:bg-primary-dark text-white font-semibold py-3 rounded-xl transition text-sm"
+            >
+              Sign In
+            </button>
+            <Link
+              to="/"
+              className="w-full text-primary hover:underline font-medium text-sm"
+            >
+              Back to Home
+            </Link>
+          </div>
+        </div>
       </div>
     );
   }

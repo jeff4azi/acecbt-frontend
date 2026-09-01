@@ -8,6 +8,7 @@ import {
   BookOpen,
   SlidersHorizontal,
 } from "lucide-react";
+import { useAuth } from "../../context/AuthContext";
 import api from "../../lib/api";
 
 const SORT_OPTIONS = [
@@ -55,6 +56,7 @@ function QuizCard({ quiz, unlocked }) {
 }
 
 export default function Browse() {
+  const { user, loading: authLoading } = useAuth();
   const [quizzes, setQuizzes] = useState([]);
   const [unlockedIds, setUnlockedIds] = useState(new Set());
   const [loading, setLoading] = useState(true);
@@ -62,22 +64,38 @@ export default function Browse() {
   const [sort, setSort] = useState("newest");
 
   useEffect(() => {
+    if (authLoading) return;
+    let cancelled = false;
+
     async function load() {
       try {
+        const quizzesReq = api.get("/quizzes");
+        const unlockedReq = user
+          ? api.get("/unlocked").catch(() => ({ data: [] }))
+          : Promise.resolve({ data: [] });
         const [quizzesRes, unlockedRes] = await Promise.all([
-          api.get("/quizzes"),
-          api.get("/unlocked").catch(() => ({ data: [] })),
+          quizzesReq,
+          unlockedReq,
         ]);
-        setQuizzes(quizzesRes.data);
-        setUnlockedIds(new Set((unlockedRes.data ?? []).map((u) => u.quiz_id)));
+        if (cancelled) return;
+        setQuizzes(quizzesRes.data ?? []);
+        setUnlockedIds(
+          new Set((unlockedRes.data ?? []).map((u) => u.quiz_id)),
+        );
       } catch (err) {
+        if (cancelled) return;
+        if (err?.response?.status === 401) return;
         console.error("Browse load error:", err);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
     load();
-  }, []);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, user]);
 
   const filtered = useMemo(() => {
     let list = quizzes.filter((q) =>
@@ -95,7 +113,7 @@ export default function Browse() {
     return list;
   }, [quizzes, query, sort]);
 
-  if (loading) {
+  if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-tint flex items-center justify-center">
         <span className="w-7 h-7 border-4 border-primary border-t-transparent rounded-full animate-spin" />

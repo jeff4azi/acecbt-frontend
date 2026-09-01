@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { Medal } from "lucide-react";
 import api from "../../lib/api";
@@ -43,21 +43,31 @@ export default function Leaderboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let cancelled = false;
     async function load() {
       try {
         const [lbRes, quizRes] = await Promise.all([
           api.get(`/quizzes/${quizId}/leaderboard`),
           api.get(`/quizzes/${quizId}`),
         ]);
+        if (cancelled) return;
         setLeaderboard(lbRes.data);
         setQuizTitle(quizRes.data.title);
       } catch (err) {
-        console.error("Leaderboard load error:", err);
+        const status = err?.response?.status;
+        if (status === 401 || status === 403) {
+          // interceptor handles session teardown + redirect
+        } else {
+          console.error("Leaderboard load error:", err);
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
     load();
+    return () => {
+      cancelled = true;
+    };
   }, [quizId]);
 
   if (loading) {

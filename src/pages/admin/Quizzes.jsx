@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Plus, Pencil, Trash2, BookOpen, Info } from "lucide-react";
+import { Plus, Pencil, Trash2, BookOpen, Info, ShieldAlert } from "lucide-react";
 import api from "../../lib/api";
+import { useAuth } from "../../context/AuthContext";
 
 function DeleteModal({ quiz, onConfirm, onCancel }) {
   return (
@@ -31,19 +32,72 @@ function DeleteModal({ quiz, onConfirm, onCancel }) {
   );
 }
 
+function AdminGateCTA() {
+  return (
+    <div className="min-h-screen bg-tint flex items-center justify-center px-4">
+      <div className="bg-white rounded-2xl shadow-sm p-8 max-w-sm w-full text-center space-y-5">
+        <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto">
+          <ShieldAlert size={32} className="text-primary" />
+        </div>
+        <div>
+          <h1 className="text-xl font-bold text-primary-dark mb-1">
+            Admin Access Required
+          </h1>
+          <p className="text-sm text-gray-500">
+            Sign in with your admin account to manage quizzes.
+          </p>
+        </div>
+        <Link
+          to="/admin/login"
+          className="block w-full bg-primary hover:bg-primary-dark text-white font-semibold py-3 rounded-2xl text-sm transition"
+        >
+          Sign In as Admin
+        </Link>
+        <Link
+          to="/"
+          className="block w-full border-2 border-gray-200 text-gray-600 hover:bg-gray-50 font-semibold py-3 rounded-2xl text-sm transition"
+        >
+          Back to Home
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 export default function Quizzes() {
+  const { authLoading, user } = useAuth();
   const [quizzes, setQuizzes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [toDelete, setToDelete] = useState(null);
   const [deleteError, setDeleteError] = useState("");
 
   useEffect(() => {
+    if (authLoading) return;
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
     api
       .get("/quizzes/admin")
-      .then((res) => setQuizzes(res.data))
-      .catch((err) => console.error("Quizzes load error:", err))
-      .finally(() => setLoading(false));
-  }, []);
+      .then((res) => {
+        if (!cancelled) setQuizzes(res.data);
+      })
+      .catch((err) => {
+        const status = err?.response?.status;
+        if (status === 401 || status === 403) {
+          // interceptor handles
+        } else {
+          console.error("Quizzes load error:", err);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, user]);
 
   async function confirmDelete() {
     setDeleteError("");
@@ -52,17 +106,26 @@ export default function Quizzes() {
       setQuizzes((prev) => prev.filter((q) => q.id !== toDelete.id));
       setToDelete(null);
     } catch (err) {
-      setDeleteError(err.response?.data?.error ?? "Could not delete quiz.");
+      const status = err?.response?.status;
+      if (status === 401 || status === 403) {
+        // interceptor handles
+      } else {
+        setDeleteError(err.response?.data?.error ?? "Could not delete quiz.");
+      }
       setToDelete(null);
     }
   }
 
-  if (loading) {
+  if (authLoading || (loading && user)) {
     return (
       <div className="min-h-screen bg-tint flex items-center justify-center">
         <span className="w-7 h-7 border-4 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
+  }
+
+  if (!user) {
+    return <AdminGateCTA />;
   }
 
   // We don't have has_attempts from the list endpoint — the backend blocks delete

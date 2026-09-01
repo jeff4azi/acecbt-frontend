@@ -5,7 +5,9 @@ import {
   ChevronRight,
   AlertTriangle,
   AlertCircle,
+  LogIn,
 } from "lucide-react";
+import { useAuth } from "../../context/AuthContext";
 import api from "../../lib/api";
 
 function formatTime(seconds) {
@@ -19,6 +21,7 @@ function formatTime(seconds) {
 export default function QuizTaking() {
   const { quizId } = useParams();
   const navigate = useNavigate();
+  const { user, loading: authLoading } = useAuth();
 
   const [quiz, setQuiz] = useState(null);
   const [questions, setQuestions] = useState([]);
@@ -36,23 +39,37 @@ export default function QuizTaking() {
 
   // Load quiz + questions
   useEffect(() => {
+    if (authLoading) return;
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+
     async function load() {
       try {
         const [quizRes, questionsRes] = await Promise.all([
           api.get(`/quizzes/${quizId}`),
           api.get(`/quizzes/${quizId}/questions`),
         ]);
+        if (cancelled) return;
         setQuiz(quizRes.data);
         setQuestions(questionsRes.data);
         setTimeLeft(quizRes.data.duration_minutes * 60);
       } catch (err) {
+        if (cancelled) return;
+        if (err?.response?.status === 401) return;
         setError(err.response?.data?.error ?? "Failed to load quiz.");
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
     load();
-  }, [quizId]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, user, quizId]);
 
   // Start countdown once timeLeft is set
   useEffect(() => {
@@ -80,7 +97,6 @@ export default function QuizTaking() {
     const totalSeconds = quiz.duration_minutes * 60;
     const timeTaken = totalSeconds - (timeLeft ?? 0);
 
-    // Compute score locally from correct_option_index on each question
     let correct = 0;
     const breakdown = questions.map((q) => {
       const selected = answers[q.id] ?? null;
@@ -96,9 +112,8 @@ export default function QuizTaking() {
     });
 
     const total = questions.length;
-    const score = Math.round((correct / total) * 100);
+    const score = total > 0 ? Math.round((correct / total) * 100) : 0;
 
-    // Persist to backend (fire and don't block navigation on error)
     try {
       await api.post(`/quizzes/${quizId}/attempts`, {
         correct_count: correct,
@@ -107,10 +122,12 @@ export default function QuizTaking() {
         time_taken_seconds: timeTaken,
       });
     } catch (err) {
-      console.warn(
-        "Attempt save failed:",
-        err.response?.data?.error ?? err.message,
-      );
+      if (err?.response?.status !== 401) {
+        console.warn(
+          "Attempt save failed:",
+          err.response?.data?.error ?? err.message,
+        );
+      }
     }
 
     navigate(`/quiz/${quizId}/result`, {
@@ -134,10 +151,44 @@ export default function QuizTaking() {
     else handleSubmit();
   }
 
-  if (loading) {
+  if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-tint flex items-center justify-center">
         <span className="w-7 h-7 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-tint flex items-center justify-center p-4">
+        <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm p-8 text-center space-y-5">
+          <div className="w-16 h-16 rounded-full bg-primary/10 text-primary flex items-center justify-center mx-auto">
+            <LogIn size={28} />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-gray-800 mb-1">
+              Sign in to take this quiz
+            </h2>
+            <p className="text-sm text-gray-500">
+              You need an account to record your attempt and score.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={() => navigate("/login", { replace: true })}
+              className="w-full bg-primary hover:bg-primary-dark text-white font-semibold py-3 rounded-xl transition text-sm"
+            >
+              Sign In
+            </button>
+            <button
+              onClick={() => navigate(-1)}
+              className="w-full text-gray-500 hover:text-gray-700 text-sm"
+            >
+              Go back
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
