@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ChevronLeft,
@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   AlertCircle,
   LogIn,
+  X,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import api from "../../lib/api";
@@ -18,6 +19,39 @@ function formatTime(seconds) {
   return `${m}:${s}`;
 }
 
+// ── Session persistence helpers ───────────────────────────────────────────────
+// Key is scoped to quiz + user so two users on the same device don't collide.
+function sessionKey(quizId, userId) {
+  return `quiz_session_${quizId}_${userId}`;
+}
+
+function loadSession(quizId, userId) {
+  try {
+    const raw = sessionStorage.getItem(sessionKey(quizId, userId));
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveSession(quizId, userId, data) {
+  try {
+    sessionStorage.setItem(sessionKey(quizId, userId), JSON.stringify(data));
+  } catch {
+    // sessionStorage full or unavailable — fail silently
+  }
+}
+
+function clearSession(quizId, userId) {
+  try {
+    sessionStorage.removeItem(sessionKey(quizId, userId));
+  } catch {
+    // ignore
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function QuizTaking() {
   const { quizId } = useParams();
   const navigate = useNavigate();
@@ -29,21 +63,48 @@ export default function QuizTaking() {
   const [error, setError] = useState("");
 
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [answers, setAnswers] = useState({}); // { questionId: optionIndex }
+  const [answers, setAnswers] = useState({});
   const [timeLeft, setTimeLeft] = useState(null);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [showQuit, setShowQuit] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
-  // Keep ref in sync so the timer callback always sees the latest answers
+  // Refs that are always current — safe to read from timer / submit callbacks
+  const answersRef = useRef({});
+  const timeLeftRef = useRef(null);
+  const hasSubmitted = useRef(false);
+  const timerRef = useRef(null);
+  const quizRef = useRef(null);
+  const questionsRef = useRef([]);
+
+  // Keep refs in sync
   useEffect(() => {
     answersRef.current = answers;
   }, [answers]);
-  const [showConfirm, setShowConfirm] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  useEffect(() => {
+    timeLeftRef.current = timeLeft;
+  }, [timeLeft]);
+  useEffect(() => {
+    quizRef.current = quiz;
+  }, [quiz]);
+  useEffect(() => {
+    questionsRef.current = questions;
+  }, [questions]);
 
-  const hasSubmitted = useRef(false);
-  const timerRef = useRef(null);
-  const answersRef = useRef(answers); // always mirrors latest answers for the timer callback
+  // ── Persist answers + currentIndex whenever they change ──────────────────
+  useEffect(() => {
+    if (!user || !quizId || timeLeft === null) return;
+    // Read the existing startedAt from storage so we never overwrite it
+    const existing = loadSession(quizId, user.id);
+    if (!existing?.startedAt) return; // not initialized yet, load() handles the first write
+    saveSession(quizId, user.id, {
+      startedAt: existing.startedAt,
+      answers,
+      currentIndex,
+    });
+  }, [answers, currentIndex, user, quizId, timeLeft]);
 
-  // Load quiz + questions
+  // ── Load quiz + questions, restore session if available ──────────────────
   useEffect(() => {
     if (authLoading) return;
     if (!user) {
@@ -59,9 +120,54 @@ export default function QuizTaking() {
           api.get(`/quizzes/${quizId}/questions`),
         ]);
         if (cancelled) return;
-        setQuiz(quizRes.data);
-        setQuestions(questionsRes.data);
-        setTimeLeft(quizRes.data.duration_minutes * 60);
+
+        const loadedQuiz = quizRes.data;
+        const loadedQuestions = questionsRes.data;
+        const totalSeconds = loadedQuiz.duration_minutes * 60;
+
+        setQuiz(loadedQuiz);
+        setQuestions(loadedQuestions);
+
+        // Restore session if one exists for this quiz+user
+        const saved = loadSession(quizId, user.id);
+
+        if (saved?.startedAt) {
+          // Calculate how much time is genuinely left based on wall-clock
+          const elapsed = Math.floor((Date.now() - saved.startedAt) / 1000);
+          const remaining = totalSeconds - elapsed;
+
+          if (remaining <= 0) {
+            // Time already ran out while they were away — auto-submit immediately
+            // Restore answers first so the result is accurate
+            const restoredAnswers = saved.answers ?? {};
+            answersRef.current = restoredAnswers;
+            setAnswers(restoredAnswers);
+            setQuestions(loadedQuestions);
+            questionsRef.current = loadedQuestions;
+            setQuiz(loadedQuiz);
+            quizRef.current = loadedQuiz;
+            setTimeLeft(0);
+            timeLeftRef.current = 0;
+            if (!cancelled) setLoading(false);
+            // Tiny defer so state is flushed before submit runs
+            setTimeout(() => handleSubmit(true), 50);
+            return;
+          }
+
+          // Restore everything
+          setAnswers(saved.answers ?? {});
+          setCurrentIndex(saved.currentIndex ?? 0);
+          setTimeLeft(remaining);
+        } else {
+          // Fresh attempt — record start time in the session
+          const startedAt = Date.now();
+          saveSession(quizId, user.id, {
+            startedAt,
+            answers: {},
+            currentIndex: 0,
+          });
+          setTimeLeft(totalSeconds);
+        }
       } catch (err) {
         if (cancelled) return;
         if (err?.response?.status === 401) return;
@@ -70,96 +176,121 @@ export default function QuizTaking() {
         if (!cancelled) setLoading(false);
       }
     }
-    load();
 
+    load();
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoading, user, quizId]);
 
-  // Start countdown once timeLeft is set
+  // ── Countdown timer ───────────────────────────────────────────────────────
   useEffect(() => {
     if (timeLeft === null) return;
+
     timerRef.current = setInterval(() => {
       setTimeLeft((prev) => {
-        if (prev <= 1) {
+        const next = prev - 1;
+        timeLeftRef.current = next;
+
+        if (next <= 0) {
           clearInterval(timerRef.current);
           handleSubmit(true);
           return 0;
         }
-        return prev - 1;
+        return next;
       });
     }, 1000);
+
     return () => clearInterval(timerRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeLeft !== null]);
 
-  async function handleSubmit(autoSubmit = false) {
-    if (hasSubmitted.current || !quiz) return;
-    hasSubmitted.current = true;
-    clearInterval(timerRef.current);
-    setSubmitting(true);
+  // ── Submit ────────────────────────────────────────────────────────────────
+  const handleSubmit = useCallback(
+    async (autoSubmit = false) => {
+      if (hasSubmitted.current) return;
+      const currentQuiz = quizRef.current;
+      if (!currentQuiz) return;
 
-    const totalSeconds = quiz.duration_minutes * 60;
-    const timeTaken = totalSeconds - (timeLeft ?? 0);
+      hasSubmitted.current = true;
+      clearInterval(timerRef.current);
+      setSubmitting(true);
 
-    // Use the ref so auto-submit (called from stale timer closure) sees
-    // all the answers the user actually selected, not the initial empty map.
-    const currentAnswers = answersRef.current;
+      // Clear saved session — quiz is done
+      if (user) clearSession(quizId, user.id);
 
-    let correct = 0;
-    const breakdown = questions.map((q) => {
-      const selected = currentAnswers[q.id] ?? null;
-      const isCorrect = selected === q.correct_option_index;
-      if (isCorrect) correct++;
-      return {
-        question_text: q.question_text,
-        question_image_url: q.question_image_url || null,
-        options: q.options,
-        selected_option: selected,
-        correct_option: q.correct_option_index,
-        explanation: q.explanation,
-      };
-    });
+      const totalSeconds = currentQuiz.duration_minutes * 60;
+      const timeTaken = totalSeconds - (timeLeftRef.current ?? 0);
+      const currentAnswers = answersRef.current;
+      const currentQuestions = questionsRef.current;
 
-    const total = questions.length;
-    const score = total > 0 ? Math.round((correct / total) * 100) : 0;
-
-    try {
-      await api.post(`/quizzes/${quizId}/attempts`, {
-        correct_count: correct,
-        wrong_count: total - correct,
-        total_questions: total,
-        time_taken_seconds: timeTaken,
+      let correct = 0;
+      const breakdown = currentQuestions.map((q) => {
+        const selected = currentAnswers[q.id] ?? null;
+        const isCorrect = selected === q.correct_option_index;
+        if (isCorrect) correct++;
+        return {
+          question_text: q.question_text,
+          question_image_url: q.question_image_url || null,
+          options: q.options,
+          selected_option: selected,
+          correct_option: q.correct_option_index,
+          explanation: q.explanation,
+        };
       });
-    } catch (err) {
-      if (err?.response?.status !== 401) {
-        console.warn(
-          "Attempt save failed:",
-          err.response?.data?.error ?? err.message,
-        );
-      }
-    }
 
-    navigate(`/quiz/${quizId}/result`, {
-      replace: true,
-      state: {
-        score,
-        correct_count: correct,
-        wrong_count: total - correct,
-        total_questions: total,
-        pass_mark: quiz.pass_mark,
-        per_question: breakdown,
-        auto_submitted: autoSubmit,
-        time_taken_seconds: timeTaken,
-      },
-    });
-  }
+      const total = currentQuestions.length;
+      const score = total > 0 ? Math.round((correct / total) * 100) : 0;
+
+      try {
+        await api.post(`/quizzes/${quizId}/attempts`, {
+          correct_count: correct,
+          wrong_count: total - correct,
+          total_questions: total,
+          time_taken_seconds: timeTaken,
+        });
+      } catch (err) {
+        if (err?.response?.status !== 401) {
+          console.warn(
+            "Attempt save failed:",
+            err.response?.data?.error ?? err.message,
+          );
+        }
+      }
+
+      navigate(`/quiz/${quizId}/result`, {
+        replace: true,
+        state: {
+          score,
+          correct_count: correct,
+          wrong_count: total - correct,
+          total_questions: total,
+          pass_mark: currentQuiz.pass_mark,
+          per_question: breakdown,
+          auto_submitted: autoSubmit,
+          time_taken_seconds: timeTaken,
+        },
+      });
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    },
+    [quizId, user],
+  );
 
   function attemptSubmit() {
     setShowConfirm(true);
   }
 
+  function handleQuit() {
+    // Stop the timer immediately
+    clearInterval(timerRef.current);
+    // Wipe the session — no attempt was posted, nothing to clean on the backend
+    if (user) clearSession(quizId, user.id);
+    // Navigate back to the quiz detail page
+    navigate(`/quiz/${quizId}`, { replace: true });
+  }
+
+  // ── Render guards ─────────────────────────────────────────────────────────
   if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-tint flex items-center justify-center">
@@ -229,7 +360,7 @@ export default function QuizTaking() {
     <div className="min-h-screen bg-tint flex flex-col">
       {/* Sticky header */}
       <div className="sticky top-0 z-10 bg-white border-b border-gray-100 shadow-sm px-4 py-3 flex items-center justify-between gap-4">
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap gap-1.5 flex-1 min-w-0">
           {questions.map((q, i) => (
             <button
               key={q.id}
@@ -246,14 +377,23 @@ export default function QuizTaking() {
             </button>
           ))}
         </div>
-        <div
-          className={`shrink-0 font-mono font-bold text-lg px-3 py-1 rounded-xl ${
-            isUrgent
-              ? "bg-red-100 text-red-600 animate-pulse"
-              : "bg-tint text-primary-dark"
-          }`}
-        >
-          {formatTime(timeLeft ?? 0)}
+        <div className="flex items-center gap-2 shrink-0">
+          <div
+            className={`font-mono font-bold text-lg px-3 py-1 rounded-xl ${
+              isUrgent
+                ? "bg-red-100 text-red-600 animate-pulse"
+                : "bg-tint text-primary-dark"
+            }`}
+          >
+            {formatTime(timeLeft ?? 0)}
+          </div>
+          <button
+            onClick={() => setShowQuit(true)}
+            className="p-2 rounded-xl text-gray-400 hover:text-red-500 hover:bg-red-50 transition"
+            title="Quit quiz"
+          >
+            <X size={18} />
+          </button>
         </div>
       </div>
 
@@ -315,7 +455,7 @@ export default function QuizTaking() {
                 </span>
                 <div className="flex-1 min-w-0 space-y-2">
                   {hasText && (
-                    <span className="block text-sm font-medium wrap-break-word">
+                    <span className="block text-sm font-medium break-words">
                       {option.text}
                     </span>
                   )}
@@ -376,21 +516,56 @@ export default function QuizTaking() {
         </div>
       </div>
 
+      {/* Quit confirmation modal */}
+      {showQuit && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => setShowQuit(false)}
+          />
+          <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden">
+            <div className="h-1.5 w-full bg-linear-to-r from-red-400 to-red-600" />
+            <div className="p-6">
+              <div className="flex flex-col items-center text-center mb-5">
+                <div className="w-14 h-14 rounded-full bg-red-100 flex items-center justify-center mb-3">
+                  <X size={26} className="text-red-500" />
+                </div>
+                <h2 className="text-lg font-bold text-gray-900">
+                  Quit this quiz?
+                </h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Your progress will be lost and no attempt will be recorded.
+                </p>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowQuit(false)}
+                  className="flex-1 border-2 border-gray-200 text-gray-700 font-semibold py-3 rounded-xl hover:bg-gray-50 text-sm transition"
+                >
+                  Keep going
+                </button>
+                <button
+                  onClick={handleQuit}
+                  className="flex-1 bg-red-500 hover:bg-red-600 text-white font-bold py-3 rounded-xl text-sm transition"
+                >
+                  Quit
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Submit confirmation modal */}
       {showConfirm && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
-          {/* Backdrop */}
           <div
             className="absolute inset-0 bg-black/50 backdrop-blur-sm"
             onClick={() => setShowConfirm(false)}
           />
-
-          {/* Panel */}
           <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden">
-            {/* Colour bar at top */}
             <div className="h-1.5 w-full bg-linear-to-r from-primary to-accent" />
-
             <div className="p-6">
-              {/* Icon + heading */}
               <div className="flex flex-col items-center text-center mb-5">
                 <div className="w-14 h-14 rounded-full bg-amber-100 flex items-center justify-center mb-3">
                   <AlertTriangle size={26} className="text-amber-500" />
@@ -403,57 +578,54 @@ export default function QuizTaking() {
                 </p>
               </div>
 
-              {/* Stats row */}
               {(() => {
                 const answered = Object.keys(answersRef.current).length;
                 const unanswered = questions.length - answered;
                 return (
-                  <div className="grid grid-cols-3 gap-2 mb-5">
-                    <div className="bg-tint rounded-xl px-3 py-3 text-center">
-                      <p className="text-xl font-bold text-primary">
-                        {answered}
-                      </p>
-                      <p className="text-[11px] text-gray-500 mt-0.5">
-                        Answered
-                      </p>
-                    </div>
-                    <div
-                      className={`rounded-xl px-3 py-3 text-center ${unanswered > 0 ? "bg-red-50" : "bg-tint"}`}
-                    >
-                      <p
-                        className={`text-xl font-bold ${unanswered > 0 ? "text-red-500" : "text-primary"}`}
+                  <>
+                    <div className="grid grid-cols-3 gap-2 mb-4">
+                      <div className="bg-tint rounded-xl px-3 py-3 text-center">
+                        <p className="text-xl font-bold text-primary">
+                          {answered}
+                        </p>
+                        <p className="text-[11px] text-gray-500 mt-0.5">
+                          Answered
+                        </p>
+                      </div>
+                      <div
+                        className={`rounded-xl px-3 py-3 text-center ${unanswered > 0 ? "bg-red-50" : "bg-tint"}`}
                       >
-                        {unanswered}
-                      </p>
-                      <p className="text-[11px] text-gray-500 mt-0.5">
-                        Skipped
-                      </p>
-                    </div>
-                    <div
-                      className={`rounded-xl px-3 py-3 text-center ${isUrgent ? "bg-red-50" : "bg-tint"}`}
-                    >
-                      <p
-                        className={`text-xl font-bold font-mono ${isUrgent ? "text-red-500" : "text-primary-dark"}`}
+                        <p
+                          className={`text-xl font-bold ${unanswered > 0 ? "text-red-500" : "text-primary"}`}
+                        >
+                          {unanswered}
+                        </p>
+                        <p className="text-[11px] text-gray-500 mt-0.5">
+                          Skipped
+                        </p>
+                      </div>
+                      <div
+                        className={`rounded-xl px-3 py-3 text-center ${isUrgent ? "bg-red-50" : "bg-tint"}`}
                       >
-                        {formatTime(timeLeft ?? 0)}
-                      </p>
-                      <p className="text-[11px] text-gray-500 mt-0.5">
-                        Remaining
-                      </p>
+                        <p
+                          className={`text-xl font-bold font-mono ${isUrgent ? "text-red-500" : "text-primary-dark"}`}
+                        >
+                          {formatTime(timeLeft ?? 0)}
+                        </p>
+                        <p className="text-[11px] text-gray-500 mt-0.5">
+                          Remaining
+                        </p>
+                      </div>
                     </div>
-                  </div>
+                    {unanswered > 0 && (
+                      <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-4 text-center">
+                        Skipped questions will be marked as wrong.
+                      </p>
+                    )}
+                  </>
                 );
               })()}
 
-              {/* Warning if skipped questions */}
-              {questions.length - Object.keys(answersRef.current).length >
-                0 && (
-                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-5 text-center">
-                  Skipped questions will be marked as wrong.
-                </p>
-              )}
-
-              {/* Buttons */}
               <div className="flex gap-3">
                 <button
                   onClick={() => setShowConfirm(false)}
