@@ -104,6 +104,7 @@ export default function QuizTaking() {
       if (isCorrect) correct++;
       return {
         question_text: q.question_text,
+        question_image_url: q.question_image_url || null,
         options: q.options,
         selected_option: selected,
         correct_option: q.correct_option_index,
@@ -258,31 +259,45 @@ export default function QuizTaking() {
             {question.question_text}
           </p>
           {question.question_image_url && (
-            <img
-              src={question.question_image_url}
-              alt="Question"
-              className="mt-3 w-full rounded-xl object-cover max-h-52"
-            />
+            <a
+              href={question.question_image_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block mt-3 group"
+              title="Click to open larger view"
+            >
+              <img
+                src={question.question_image_url}
+                alt="Question diagram"
+                className="w-full rounded-xl border border-gray-200 max-h-64 object-contain bg-white group-hover:ring-2 group-hover:ring-primary/30 transition"
+                loading="lazy"
+              />
+              <p className="text-[11px] text-gray-400 mt-1 text-right">
+                Tap image to open larger
+              </p>
+            </a>
           )}
         </div>
 
         <div className="flex flex-col gap-3">
           {(question.options ?? []).map((option, idx) => {
             const selected = answers[question.id] === idx;
+            const hasText = !!option.text && option.text.trim().length > 0;
+            const hasImage = !!option.image_url;
             return (
               <button
                 key={idx}
                 onClick={() =>
                   setAnswers((prev) => ({ ...prev, [question.id]: idx }))
                 }
-                className={`flex items-center gap-3 w-full p-4 rounded-xl border-2 text-left transition ${
+                className={`flex items-start gap-3 w-full p-4 rounded-xl border-2 text-left transition ${
                   selected
                     ? "border-primary bg-primary/5 text-primary"
                     : "border-gray-200 bg-white hover:border-accent-light text-gray-700"
                 }`}
               >
                 <span
-                  className={`w-7 h-7 shrink-0 rounded-full flex items-center justify-center text-xs font-bold border-2 ${
+                  className={`shrink-0 mt-0.5 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border-2 ${
                     selected
                       ? "bg-primary border-primary text-white"
                       : "border-gray-300 text-gray-400"
@@ -290,16 +305,34 @@ export default function QuizTaking() {
                 >
                   {String.fromCharCode(65 + idx)}
                 </span>
-                <span className="flex-1 text-sm font-medium">
-                  {option.text}
-                </span>
-                {option.image_url && (
-                  <img
-                    src={option.image_url}
-                    alt={`Option ${String.fromCharCode(65 + idx)}`}
-                    className="w-16 h-16 object-cover rounded-lg"
-                  />
-                )}
+                <div className="flex-1 min-w-0 space-y-2">
+                  {hasText && (
+                    <span className="block text-sm font-medium break-words">
+                      {option.text}
+                    </span>
+                  )}
+                  {hasImage && (
+                    <a
+                      href={option.image_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="block"
+                      title="Click to open larger view"
+                    >
+                      <img
+                        src={option.image_url}
+                        alt={`Option ${String.fromCharCode(65 + idx)}`}
+                        className={`rounded-lg border border-gray-200 bg-white object-contain hover:ring-2 hover:ring-primary/30 transition ${
+                          hasText
+                            ? "w-full max-h-52"
+                            : "w-full max-h-60"
+                        }`}
+                        loading="lazy"
+                      />
+                    </a>
+                  )}
+                </div>
               </button>
             );
           })}

@@ -1,6 +1,13 @@
 import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
-import { Plus, Pencil, Trash2, X, ExternalLink, ShieldAlert } from "lucide-react";
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  X,
+  ExternalLink,
+  ShieldAlert,
+} from "lucide-react";
 import api from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabaseClient";
@@ -8,17 +15,65 @@ import imageCompression from "browser-image-compression";
 
 // Real upload: compress to 80-250KB WebP then upload to Supabase Storage ad-images bucket
 async function uploadAdImage(file) {
-  const compressed = await imageCompression(file, {
-    maxSizeMB: 0.25,
-    maxWidthOrHeight: 1200,
-    useWebWorker: true,
-    fileType: "image/webp",
-  });
+  if (file.size > 6 * 1024 * 1024) {
+    throw new Error(
+      "File too large (" +
+        Math.round(file.size / 1024 / 1024) +
+        " MB). Max 6MB before compression.",
+    );
+  }
+
+  let compressed;
+  try {
+    compressed = await imageCompression(file, {
+      maxSizeMB: 0.25,
+      maxWidthOrHeight: 1200,
+      useWebWorker: true,
+      fileType: "image/webp",
+      initialQuality: 0.8,
+    });
+  } catch {
+    compressed = file;
+  }
+
   const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.webp`;
-  const { error } = await supabase.storage
-    .from("ad-images")
-    .upload(path, compressed, { contentType: "image/webp" });
-  if (error) throw new Error(error.message);
+
+  try {
+    const { error } = await supabase.storage
+      .from("ad-images")
+      .upload(path, compressed, {
+        contentType: "image/webp",
+        upsert: false,
+      });
+    if (error) {
+      if (
+        error.message &&
+        /(bucket|schema|not found|does not exist|permission|public|policy)/i.test(
+          error.message,
+        )
+      ) {
+        throw new Error(
+          "Storage bucket issue — make sure the 'ad-images' bucket exists in Supabase, is set to PUBLIC, and has RLS policies allowing insert/select. Raw: " +
+            error.message,
+        );
+      }
+      throw new Error(error.message);
+    }
+  } catch (uploadErr) {
+    const msg = uploadErr?.message || String(uploadErr);
+    if (
+      /(bucket|schema|not found|does not exist|permission|public|policy)/i.test(
+        msg,
+      )
+    ) {
+      throw new Error(
+        "Storage bucket issue — make sure the 'ad-images' bucket exists in Supabase, is set to PUBLIC, and has RLS policies allowing insert/select. Raw: " +
+          msg,
+      );
+    }
+    throw uploadErr;
+  }
+
   const { data } = supabase.storage.from("ad-images").getPublicUrl(path);
   return data.publicUrl;
 }
@@ -29,24 +84,53 @@ function truncateUrl(url, max = 40) {
 }
 
 function AdForm({ initial, onSave, onCancel }) {
-  const [linkUrl, setLinkUrl] = useState(initial?.link_url ?? "");
   const [duration, setDuration] = useState(initial?.duration_seconds ?? 5);
+  const [linkUrl, setLinkUrl] = useState(initial?.link_url ?? "");
   const [imageFile, setImageFile] = useState(null);
   const [preview, setPreview] = useState(initial?.image_url ?? null);
   const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState("");
   const fileRef = useRef();
 
-  function handleImage(e) {
-    const file = e.target.files[0];
+  function applyFile(file) {
     if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setError("Please select an image file (PNG, JPG, WEBP).");
+      return;
+    }
+    setError("");
     setImageFile(file);
     setPreview(URL.createObjectURL(file));
+  }
+
+  function handleImage(e) {
+    applyFile(e.target.files[0]);
+  }
+
+  function handleDrop(e) {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file && file.type.startsWith("image/")) applyFile(file);
+  }
+
+  function clearImage(e) {
+    e.stopPropagation();
+    setImageFile(null);
+    setPreview(null);
+    if (fileRef.current) fileRef.current.value = "";
   }
 
   async function handleSave(e) {
     e.preventDefault();
     setError("");
+
+    const trimmedLink = linkUrl.trim();
+    if (!trimmedLink) {
+      setError("Please enter a destination URL for the ad.");
+      return;
+    }
 
     let imageUrl = initial?.image_url ?? "";
     if (imageFile) {
@@ -69,7 +153,7 @@ function AdForm({ initial, onSave, onCancel }) {
     onSave({
       id: initial?.id,
       image_url: imageUrl,
-      link_url: linkUrl,
+      link_url: trimmedLink,
       duration_seconds: Number(duration),
       is_active: initial?.is_active ?? true,
     });
@@ -77,38 +161,88 @@ function AdForm({ initial, onSave, onCancel }) {
 
   return (
     <form onSubmit={handleSave} className="space-y-4">
+      {/* Image upload zone */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
+        <label className="block text-sm font-medium text-gray-700 mb-2">
           Ad Image
         </label>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*"
-          onChange={handleImage}
-          className="text-sm"
-        />
-        {preview && (
-          <img
-            src={preview}
-            alt="preview"
-            className="mt-2 w-full h-32 object-cover rounded-xl border"
+        <div
+          onClick={() => fileRef.current.click()}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragOver(true);
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={handleDrop}
+          className={`relative flex flex-col items-center justify-center gap-2 w-full rounded-xl border-2 border-dashed cursor-pointer transition-colors
+            ${
+              dragOver
+                ? "border-primary bg-primary/5"
+                : preview
+                  ? "border-gray-200 bg-gray-50"
+                  : "border-accent-light hover:border-primary/50 hover:bg-primary/5 bg-white"
+            }`}
+          style={{ minHeight: preview ? "auto" : "140px" }}
+        >
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            onChange={handleImage}
+            className="hidden"
           />
-        )}
+          {preview ? (
+            <>
+              <img
+                src={preview}
+                alt="preview"
+                className="w-full h-40 object-cover rounded-xl"
+              />
+              <span className="absolute bottom-2 right-2 bg-black/50 text-white text-xs px-2 py-0.5 rounded-lg backdrop-blur-sm">
+                Click to change
+              </span>
+              {imageFile && (
+                <button
+                  type="button"
+                  onClick={clearImage}
+                  className="absolute top-2 left-2 w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center text-xs"
+                  title="Remove image"
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
+                <svg
+                  className="w-6 h-6 text-primary"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={1.5}
+                    d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                  />
+                </svg>
+              </div>
+              <p className="text-sm font-medium text-gray-700">
+                {dragOver
+                  ? "Drop image here"
+                  : "Click to upload or drag & drop"}
+              </p>
+              <p className="text-xs text-gray-400">
+                PNG, JPG, WEBP — compressed automatically
+              </p>
+            </>
+          )}
+        </div>
       </div>
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Link URL
-        </label>
-        <input
-          type="url"
-          required
-          value={linkUrl}
-          onChange={(e) => setLinkUrl(e.target.value)}
-          placeholder="https://example.com"
-          className="w-full px-4 py-3 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm"
-        />
-      </div>
+
+      {/* Duration */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">
           Duration (seconds)
@@ -122,11 +256,30 @@ function AdForm({ initial, onSave, onCancel }) {
           className="w-full px-4 py-3 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm"
         />
       </div>
+
+      {/* Link URL */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Destination URL
+        </label>
+        <input
+          type="url"
+          placeholder="https://example.com or https://wa.me/234..."
+          value={linkUrl}
+          onChange={(e) => setLinkUrl(e.target.value)}
+          className="w-full px-4 py-3 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm"
+        />
+        <p className="text-xs text-gray-400 mt-1">
+          Where users go when they click the ad or "Learn more" button.
+        </p>
+      </div>
+
       {error && (
         <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
           {error}
         </p>
       )}
+
       <div className="flex gap-3 pt-1">
         <button
           type="button"
@@ -140,10 +293,14 @@ function AdForm({ initial, onSave, onCancel }) {
           disabled={uploading}
           className="flex-1 bg-primary hover:bg-primary-dark disabled:opacity-60 text-white font-semibold py-2.5 rounded-xl text-sm transition flex items-center justify-center gap-2"
         >
-          {uploading && (
-            <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+          {uploading ? (
+            <>
+              <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              Uploading…
+            </>
+          ) : (
+            "Save"
           )}
-          {uploading ? "Uploading…" : "Save"}
         </button>
       </div>
     </form>
@@ -372,10 +529,10 @@ export default function Ads() {
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => toggleActive(ad)}
-                      className={`w-10 h-5 rounded-full transition-colors relative ${ad.is_active ? "bg-primary" : "bg-gray-300"}`}
+                      className={`w-10 h-5 rounded-full transition-colors relative flex-shrink-0 ${ad.is_active ? "bg-primary" : "bg-gray-300"}`}
                     >
                       <span
-                        className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${ad.is_active ? "translate-x-5" : "translate-x-0.5"}`}
+                        className={`absolute top-0.5 bottom-0.5 w-4 h-4 bg-white rounded-full shadow transition-all duration-200 ${ad.is_active ? "left-[calc(100%-18px)]" : "left-0.5"}`}
                       />
                     </button>
                     <span

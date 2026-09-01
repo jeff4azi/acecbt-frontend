@@ -59,8 +59,14 @@ function AdPopup({ ads, onClose }) {
 
   if (!ads?.length) return null;
   const ad = ads[0];
+  const hasLink = !!ad.link_url && ad.link_url.trim().length > 0;
   const total = Math.max(2, Number(ad.duration_seconds));
   const progress = ((total - timeLeft) / total) * 100;
+
+  function handleAdClick() {
+    if (!hasLink) return;
+    window.open(ad.link_url, "_blank", "noopener,noreferrer");
+  }
 
   return (
     <div
@@ -84,18 +90,19 @@ function AdPopup({ ads, onClose }) {
           <X size={16} />
         </button>
 
-        <a
-          href={ad.link_url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="block"
+        {/* Image — clickable only if link_url is set */}
+        <div
+          onClick={handleAdClick}
+          className={hasLink ? "cursor-pointer" : ""}
+          title={hasLink ? `Opens: ${ad.link_url}` : undefined}
         >
           <img
             src={ad.image_url}
             alt="Sponsored"
             className="w-full h-52 sm:h-60 object-cover"
+            draggable={false}
           />
-        </a>
+        </div>
 
         <div className="p-5 pt-4 space-y-3">
           <div className="flex items-center justify-between">
@@ -117,14 +124,30 @@ function AdPopup({ ads, onClose }) {
             />
           </div>
 
-          <a
-            href={ad.link_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-center gap-2 w-full bg-primary hover:bg-primary-dark text-white font-semibold py-3 rounded-2xl text-sm transition shadow-md active:scale-[0.98]"
-          >
-            Learn more <ChevronRight size={16} />
-          </a>
+          {hasLink ? (
+            <a
+              href={ad.link_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => {
+                e.preventDefault();
+                window.open(ad.link_url, "_blank", "noopener,noreferrer");
+              }}
+              className="flex items-center justify-center gap-2 w-full bg-primary hover:bg-primary-dark text-white font-semibold py-3 rounded-2xl text-sm transition shadow-md active:scale-[0.98]"
+            >
+              Learn more <ChevronRight size={16} />
+            </a>
+          ) : (
+            <button
+              onClick={() => {
+                setVisible(false);
+                setTimeout(onClose, 300);
+              }}
+              className="w-full bg-primary hover:bg-primary-dark text-white font-semibold py-3 rounded-2xl text-sm transition shadow-md active:scale-[0.98]"
+            >
+              Dismiss
+            </button>
+          )}
         </div>
       </div>
     </div>

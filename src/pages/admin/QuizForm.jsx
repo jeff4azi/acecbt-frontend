@@ -51,18 +51,68 @@ Here are my questions:
 
 // ─── Image upload helper ──────────────────────────────────────────────────────
 
+const BUCKET_LABELS = {
+  "question-images": "Question images",
+  "option-images": "Answer-option images",
+  "ad-images": "Ad images",
+};
+
 async function uploadImage(file, bucket) {
-  const compressed = await imageCompression(file, {
-    maxSizeMB: 0.15,
-    maxWidthOrHeight: 800,
-    useWebWorker: true,
-    fileType: "image/webp",
-  });
+  if (file.size > 5 * 1024 * 1024) {
+    throw new Error(
+      `${BUCKET_LABELS[bucket] ?? bucket}: file too large (${Math.round(
+        file.size / 1024 / 1024,
+      )} MB). Max 5MB before compression.`,
+    );
+  }
+
+  let compressed;
+  try {
+    const widthCap = bucket === "option-images" ? 700 : 800;
+    compressed = await imageCompression(file, {
+      maxSizeMB: bucket === "option-images" ? 0.12 : 0.15,
+      maxWidthOrHeight: widthCap,
+      useWebWorker: true,
+      fileType: "image/webp",
+      initialQuality: 0.82,
+    });
+  } catch {
+    compressed = file;
+  }
+
   const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.webp`;
-  const { error } = await supabase.storage
-    .from(bucket)
-    .upload(path, compressed, { contentType: "image/webp" });
-  if (error) throw new Error(error.message);
+
+  try {
+    const { error } = await supabase.storage
+      .from(bucket)
+      .upload(path, compressed, { contentType: "image/webp", upsert: false });
+    if (error) {
+      const msg = error?.message || String(error);
+      if (
+        /(bucket|schema|not found|does not exist|permission|public|policy)/i.test(
+          msg,
+        )
+      ) {
+        throw new Error(
+          `Storage issue — make sure the '${bucket}' bucket exists in Supabase, is set to PUBLIC, and has RLS policies for insert/select. Raw: ${msg}`,
+        );
+      }
+      throw new Error(msg);
+    }
+  } catch (uploadErr) {
+    const msg = uploadErr?.message || String(uploadErr);
+    if (
+      /(bucket|schema|not found|does not exist|permission|public|policy)/i.test(
+        msg,
+      )
+    ) {
+      throw new Error(
+        `Storage issue — make sure the '${bucket}' bucket exists in Supabase, is set to PUBLIC, and has RLS policies for insert/select. Raw: ${msg}`,
+      );
+    }
+    throw uploadErr;
+  }
+
   const { data } = supabase.storage.from(bucket).getPublicUrl(path);
   return data.publicUrl;
 }
@@ -130,16 +180,32 @@ function QuestionCard({ q, index, onDelete }) {
 
 function ManualForm({ onAdd, saving }) {
   const [form, setForm] = useState(blankForm());
+  const [qDragOver, setQDragOver] = useState(false);
   const qImgRef = useRef();
+  const optImgRefs = useRef([]);
 
-  function handleQuestionImage(e) {
-    const file = e.target.files[0];
+  function applyQuestionFile(file) {
     if (!file) return;
+    if (!file.type.startsWith("image/")) return;
     setForm((f) => ({
       ...f,
       _questionFile: file,
       question_image_preview: URL.createObjectURL(file),
     }));
+  }
+
+  function handleQuestionImage(e) {
+    applyQuestionFile(e.target.files[0]);
+  }
+
+  function clearQuestionImage(e) {
+    e.stopPropagation();
+    setForm((f) => ({
+      ...f,
+      _questionFile: null,
+      question_image_preview: null,
+    }));
+    if (qImgRef.current) qImgRef.current.value = "";
   }
 
   function handleOptionText(idx, val) {
@@ -150,9 +216,9 @@ function ManualForm({ onAdd, saving }) {
     });
   }
 
-  function handleOptionImage(idx, e) {
-    const file = e.target.files[0];
+  function handleOptionImage(idx, file) {
     if (!file) return;
+    if (!file.type.startsWith("image/")) return;
     setForm((f) => {
       const opts = [...f.options];
       opts[idx] = {
@@ -162,6 +228,16 @@ function ManualForm({ onAdd, saving }) {
       };
       return { ...f, options: opts };
     });
+  }
+
+  function clearOptionImage(idx, e) {
+    e.stopPropagation();
+    setForm((f) => {
+      const opts = [...f.options];
+      opts[idx] = { ...opts[idx], _file: null, image_preview: null };
+      return { ...f, options: opts };
+    });
+    if (optImgRefs.current?.[idx]) optImgRefs.current[idx].value = "";
   }
 
   function addOption() {
@@ -185,6 +261,9 @@ function ManualForm({ onAdd, saving }) {
     onAdd({ ...form, id: makeId() });
     setForm(blankForm());
     if (qImgRef.current) qImgRef.current.value = "";
+    (optImgRefs.current || []).forEach((r) => {
+      if (r) r.value = "";
+    });
   }
 
   return (
@@ -204,25 +283,89 @@ function ManualForm({ onAdd, saving }) {
           className="w-full px-4 py-3 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm text-gray-800 resize-none"
         />
       </div>
+
+      {/* Question Image — drag & drop zone */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
+        <label className="block text-sm font-medium text-gray-700 mb-2">
           Question Image (optional)
         </label>
-        <input
-          ref={qImgRef}
-          type="file"
-          accept="image/*"
-          onChange={handleQuestionImage}
-          className="text-sm"
-        />
-        {form.question_image_preview && (
-          <img
-            src={form.question_image_preview}
-            alt="preview"
-            className="mt-2 h-28 rounded-xl object-cover border"
+        <div
+          onClick={() => qImgRef.current.click()}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setQDragOver(true);
+          }}
+          onDragLeave={() => setQDragOver(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setQDragOver(false);
+            const file = e.dataTransfer.files?.[0];
+            applyQuestionFile(file);
+          }}
+          className={`relative flex items-center justify-center w-full rounded-xl border-2 border-dashed cursor-pointer transition-colors overflow-hidden
+            ${
+              qDragOver
+                ? "border-primary bg-primary/5"
+                : form.question_image_preview
+                  ? "border-gray-200 bg-gray-50"
+                  : "border-accent-light hover:border-primary/50 hover:bg-primary/5 bg-white"
+            }`}
+          style={{ minHeight: form.question_image_preview ? "auto" : "120px" }}
+        >
+          <input
+            ref={qImgRef}
+            type="file"
+            accept="image/*"
+            onChange={handleQuestionImage}
+            className="hidden"
           />
-        )}
+          {form.question_image_preview ? (
+            <>
+              <img
+                src={form.question_image_preview}
+                alt="question preview"
+                className="w-full h-40 object-cover"
+              />
+              <button
+                type="button"
+                onClick={clearQuestionImage}
+                className="absolute top-2 left-2 w-7 h-7 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-sm"
+                title="Remove image"
+              >
+                <X size={14} />
+              </button>
+              <span className="absolute bottom-2 right-2 bg-black/50 text-white text-xs px-2 py-0.5 rounded-lg backdrop-blur-sm">
+                Click to change
+              </span>
+            </>
+          ) : (
+            <div className="flex flex-col items-center justify-center gap-2 py-6">
+              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                <svg
+                  className="w-5 h-5 text-primary"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={1.5}
+                    d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                  />
+                </svg>
+              </div>
+              <p className="text-sm font-medium text-gray-700">
+                {qDragOver ? "Drop here" : "Click or drag & drop image"}
+              </p>
+              <p className="text-xs text-gray-400">
+                PNG/JPG/WEBP — auto-compressed
+              </p>
+            </div>
+          )}
+        </div>
       </div>
+
       <div>
         <div className="flex items-center justify-between mb-2">
           <label className="text-sm font-medium text-gray-700">
@@ -251,7 +394,7 @@ function ManualForm({ onAdd, saving }) {
                 className="mt-3 accent-primary shrink-0"
                 title="Mark as correct"
               />
-              <div className="flex-1 space-y-1">
+              <div className="flex-1 space-y-2">
                 <input
                   type="text"
                   placeholder={`Option ${String.fromCharCode(65 + idx)}`}
@@ -259,19 +402,48 @@ function ManualForm({ onAdd, saving }) {
                   onChange={(e) => handleOptionText(idx, e.target.value)}
                   className="w-full px-3 py-2.5 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-sm"
                 />
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => handleOptionImage(idx, e)}
-                  className="text-xs"
-                />
-                {opt.image_preview && (
-                  <img
-                    src={opt.image_preview}
-                    alt="opt"
-                    className="h-14 rounded-lg object-cover border"
-                  />
-                )}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <label className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary-dark cursor-pointer bg-primary/10 hover:bg-primary/20 px-3 py-1.5 rounded-lg transition">
+                    <svg
+                      className="w-3.5 h-3.5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                      />
+                    </svg>
+                    Option image
+                    <input
+                      ref={(el) => (optImgRefs.current[idx] = el)}
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => handleOptionImage(idx, e.target.files[0])}
+                      className="hidden"
+                    />
+                  </label>
+                  {opt.image_preview ? (
+                    <div className="relative">
+                      <img
+                        src={opt.image_preview}
+                        alt={`${String.fromCharCode(65 + idx)} preview`}
+                        className="h-16 w-20 object-cover rounded-lg border border-gray-200"
+                      />
+                      <button
+                        type="button"
+                        onClick={(e) => clearOptionImage(idx, e)}
+                        className="absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-sm"
+                        title="Remove image"
+                      >
+                        <X size={11} />
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
               </div>
               {form.options.length > 2 && (
                 <button
@@ -286,7 +458,8 @@ function ManualForm({ onAdd, saving }) {
           ))}
         </div>
         <p className="text-xs text-gray-400 mt-2">
-          Select the radio button next to the correct answer.
+          Select the radio button next to the correct answer. You can add an
+          image for each option in place of (or alongside) the text.
         </p>
       </div>
       <div>
@@ -765,7 +938,7 @@ export default function QuizForm() {
                 className={`w-12 h-6 rounded-full transition-colors relative ${details.is_published ? "bg-primary" : "bg-gray-300"}`}
               >
                 <span
-                  className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${details.is_published ? "translate-x-6" : "translate-x-0.5"}`}
+                  className={`absolute top-0.5 bottom-0.5 w-5 h-5 bg-white rounded-full shadow transition-all duration-200 ${details.is_published ? "left-[calc(100%-22px)]" : "left-0.5"}`}
                 />
               </button>
             </div>

@@ -225,15 +225,34 @@ export default function Result() {
                     <span className="text-xs font-bold text-gray-400 shrink-0 mt-0.5">
                       Q{idx + 1}
                     </span>
-                    <p className="text-sm font-medium text-gray-800">
+                    <p className="text-sm font-medium text-gray-800 flex-1">
                       {item.question_text}
                     </p>
                   </div>
+
+                  {item.question_image_url && (
+                    <a
+                      href={item.question_image_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block mb-3"
+                      title="Click to open larger"
+                    >
+                      <img
+                        src={item.question_image_url}
+                        alt="Question diagram"
+                        className="w-full rounded-xl border border-gray-200 max-h-48 object-contain bg-white"
+                        loading="lazy"
+                      />
+                    </a>
+                  )}
 
                   <div className="space-y-1.5">
                     {item.options.map((opt, oi) => {
                       const isSelected = oi === item.selected_option;
                       const isRight = oi === item.correct_option;
+                      const optHasText = !!opt.text && opt.text.trim().length > 0;
+                      const optHasImage = !!opt.image_url;
 
                       let cls = "text-gray-600 bg-gray-50";
                       if (isRight)
@@ -244,33 +263,52 @@ export default function Result() {
                       return (
                         <div
                           key={oi}
-                          className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs ${cls}`}
+                          className={`flex flex-col gap-1.5 px-3 py-2 rounded-lg ${cls}`}
                         >
-                          {isRight ? (
-                            <CheckCircle
-                              size={13}
-                              className="text-green-500 shrink-0"
-                            />
-                          ) : isSelected ? (
-                            <XCircle
-                              size={13}
-                              className="text-red-400 shrink-0"
-                            />
-                          ) : (
-                            <span className="w-3.5 h-3.5 shrink-0" />
-                          )}
-                          <span>
-                            {String.fromCharCode(65 + oi)}. {opt.text}
-                          </span>
-                          {isSelected && !isRight && (
-                            <span className="ml-auto text-red-400 text-xs">
-                              Your answer
+                          <div className="flex items-center gap-2">
+                            {isRight ? (
+                              <CheckCircle
+                                size={13}
+                                className="text-green-500 shrink-0"
+                              />
+                            ) : isSelected ? (
+                              <XCircle
+                                size={13}
+                                className="text-red-400 shrink-0"
+                              />
+                            ) : (
+                              <span className="w-3.5 h-3.5 shrink-0" />
+                            )}
+                            <span className="text-xs">
+                              {String.fromCharCode(65 + oi)}.{" "}
+                              {optHasText ? opt.text : <em className="text-[11px] opacity-70">(image only)</em>}
                             </span>
-                          )}
-                          {isRight && (
-                            <span className="ml-auto text-green-500 text-xs">
-                              Correct
-                            </span>
+                            {isSelected && !isRight && (
+                              <span className="ml-auto text-red-400 text-xs">
+                                Your answer
+                              </span>
+                            )}
+                            {isRight && (
+                              <span className="ml-auto text-green-500 text-xs">
+                                Correct
+                              </span>
+                            )}
+                          </div>
+                          {optHasImage && (
+                            <a
+                              href={opt.image_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="ml-5"
+                              title="Click to open larger"
+                            >
+                              <img
+                                src={opt.image_url}
+                                alt={`Option ${String.fromCharCode(65 + oi)}`}
+                                className="h-20 rounded-lg border border-gray-200 bg-white object-contain"
+                                loading="lazy"
+                              />
+                            </a>
                           )}
                         </div>
                       );
