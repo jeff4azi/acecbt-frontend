@@ -1,11 +1,13 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff } from "lucide-react";
 import { supabase } from "../../lib/supabaseClient";
+import { useAuth } from "../../context/AuthContext";
 import logo from "../../assets/AceCbtLogo.png";
 
 export default function Register() {
   const navigate = useNavigate();
+  const { loading: authLoading, user, isAdmin } = useAuth();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -15,6 +17,13 @@ export default function Register() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!user) return;
+    if (isAdmin) navigate("/admin", { replace: true });
+    else navigate("/", { replace: true });
+  }, [authLoading, user, isAdmin, navigate]);
 
   async function handleSubmit(e) {
     e.preventDefault();
