@@ -76,10 +76,15 @@ function AdPopup({ ads, onClose }) {
         visible ? "opacity-100" : "opacity-0 pointer-events-none"
       }`}
     >
+      {/*
+        Card: full width up to 420px, never taller than 90dvh (falls back to 90vh).
+        flex-col lets the image grow/shrink naturally while the footer stays put.
+      */}
       <div
-        className={`relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden transition-all duration-300 ${
+        className={`relative w-full max-w-[420px] bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col transition-all duration-300 ${
           visible ? "scale-100 translate-y-0" : "scale-95 translate-y-4"
         }`}
+        style={{ maxHeight: "min(90dvh, 90vh)" }}
       >
         <button
           onClick={() => {
@@ -92,21 +97,27 @@ function AdPopup({ ads, onClose }) {
           <X size={16} />
         </button>
 
-        {/* Image — clickable only if link_url is set */}
+        {/*
+          Image section: grows to fill remaining space, never less than 120px,
+          never more than 55vh so the footer is always reachable on phone screens.
+          object-contain so no cropping — ads display at their natural ratio.
+        */}
         <div
           onClick={handleAdClick}
-          className={hasLink ? "cursor-pointer" : ""}
+          className={`flex-1 min-h-[120px] overflow-hidden bg-gray-50 ${hasLink ? "cursor-pointer" : ""}`}
+          style={{ maxHeight: "55vh" }}
           title={hasLink ? `Opens: ${ad.link_url}` : undefined}
         >
           <img
             src={ad.image_url}
             alt="Sponsored"
-            className="w-full h-52 sm:h-60 object-cover"
+            className="w-full h-full object-contain"
             draggable={false}
           />
         </div>
 
-        <div className="p-5 pt-4 space-y-3">
+        {/* Footer — fixed height, never scrolls off screen */}
+        <div className="shrink-0 p-4 pt-3 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5">
               <Sparkles size={13} className="text-amber-500" />
