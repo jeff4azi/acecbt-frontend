@@ -7,6 +7,7 @@ import {
   Clock,
   BookOpen,
   SlidersHorizontal,
+  ChevronRight,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import api from "../../lib/api";
@@ -17,39 +18,116 @@ const SORT_OPTIONS = [
   { value: "price-desc", label: "Price: High to Low" },
 ];
 
+// Deterministic accent colour from the quiz title so each card feels distinct
+// but the same quiz always gets the same colour.
+const ACCENTS = [
+  {
+    bar: "bg-blue-500",
+    badge: "bg-blue-50 text-blue-600",
+    icon: "text-blue-400",
+  },
+  {
+    bar: "bg-violet-500",
+    badge: "bg-violet-50 text-violet-600",
+    icon: "text-violet-400",
+  },
+  {
+    bar: "bg-emerald-500",
+    badge: "bg-emerald-50 text-emerald-600",
+    icon: "text-emerald-400",
+  },
+  {
+    bar: "bg-orange-500",
+    badge: "bg-orange-50 text-orange-600",
+    icon: "text-orange-400",
+  },
+  {
+    bar: "bg-rose-500",
+    badge: "bg-rose-50 text-rose-600",
+    icon: "text-rose-400",
+  },
+  {
+    bar: "bg-cyan-500",
+    badge: "bg-cyan-50 text-cyan-600",
+    icon: "text-cyan-400",
+  },
+];
+
+function accentFor(title = "") {
+  let hash = 0;
+  for (let i = 0; i < title.length; i++)
+    hash = (hash * 31 + title.charCodeAt(i)) >>> 0;
+  return ACCENTS[hash % ACCENTS.length];
+}
+
 function QuizCard({ quiz, unlocked }) {
+  const accent = accentFor(quiz.title);
+
   return (
     <Link
       to={`/quiz/${quiz.id}`}
-      className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex flex-col gap-3 hover:shadow-md transition-shadow"
+      className="group bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col hover:shadow-md hover:-translate-y-0.5 transition-all duration-200"
     >
-      <div className="flex items-start justify-between gap-2">
-        <h3 className="font-semibold text-gray-900 leading-snug">
+      {/* Accent bar */}
+      <div className={`h-1 w-full ${accent.bar}`} />
+
+      <div className="p-5 flex flex-col flex-1 gap-3">
+        {/* Top row: status badge */}
+        <div className="flex items-center justify-between gap-2">
+          {unlocked ? (
+            <span className="inline-flex items-center gap-1.5 bg-green-50 text-green-700 text-[11px] font-semibold px-2.5 py-1 rounded-full">
+              <Unlock size={10} strokeWidth={2.5} /> Unlocked
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 bg-gray-100 text-gray-500 text-[11px] font-semibold px-2.5 py-1 rounded-full">
+              <Lock size={10} strokeWidth={2.5} /> Locked
+            </span>
+          )}
+          <span className="text-xs text-gray-400 font-medium">
+            Pass: {quiz.pass_mark ?? 50}%
+          </span>
+        </div>
+
+        {/* Title */}
+        <h3 className="font-bold text-gray-900 text-base leading-snug group-hover:text-primary transition-colors line-clamp-2">
           {quiz.title}
         </h3>
-        {unlocked ? (
-          <span className="shrink-0 flex items-center gap-1 bg-green-100 text-green-700 text-xs font-medium px-2 py-0.5 rounded-full">
-            <Unlock size={11} /> Unlocked
-          </span>
+
+        {/* Description */}
+        {quiz.description ? (
+          <p className="text-sm text-gray-400 line-clamp-2 leading-relaxed flex-1">
+            {quiz.description}
+          </p>
         ) : (
-          <span className="shrink-0 flex items-center gap-1 bg-gray-100 text-gray-500 text-xs font-medium px-2 py-0.5 rounded-full">
-            <Lock size={11} /> Locked
-          </span>
+          <div className="flex-1" />
         )}
-      </div>
-      <p className="text-sm text-gray-500 line-clamp-2">{quiz.description}</p>
-      <div className="flex items-center gap-4 text-xs text-gray-500 mt-auto pt-1 border-t border-gray-50">
-        <span className="flex items-center gap-1">
-          <BookOpen size={13} className="text-accent" />
-          {quiz.question_count ?? "—"} questions
-        </span>
-        <span className="flex items-center gap-1">
-          <Clock size={13} className="text-accent" />
-          {quiz.duration_minutes} min
-        </span>
-        <span className="ml-auto font-bold text-primary text-base">
-          ₦{Number(quiz.price).toLocaleString()}
-        </span>
+
+        {/* Stats row */}
+        <div className="flex items-center gap-3 pt-3 border-t border-gray-50">
+          <div
+            className={`flex items-center gap-1.5 text-xs font-medium ${accent.icon}`}
+          >
+            <BookOpen size={13} strokeWidth={2} />
+            <span className="text-gray-600">
+              {quiz.question_count ?? "—"} Qs
+            </span>
+          </div>
+          <div
+            className={`flex items-center gap-1.5 text-xs font-medium ${accent.icon}`}
+          >
+            <Clock size={13} strokeWidth={2} />
+            <span className="text-gray-600">{quiz.duration_minutes} min</span>
+          </div>
+          <div className="ml-auto flex items-center gap-1">
+            <span className="text-base font-extrabold text-primary">
+              ₦{Number(quiz.price).toLocaleString()}
+            </span>
+            <ChevronRight
+              size={15}
+              className="text-gray-300 group-hover:text-primary group-hover:translate-x-0.5 transition-all"
+            />
+          </div>
+        </div>
       </div>
     </Link>
   );
@@ -79,9 +157,7 @@ export default function Browse() {
         ]);
         if (cancelled) return;
         setQuizzes(quizzesRes.data ?? []);
-        setUnlockedIds(
-          new Set((unlockedRes.data ?? []).map((u) => u.quiz_id)),
-        );
+        setUnlockedIds(new Set((unlockedRes.data ?? []).map((u) => u.quiz_id)));
       } catch (err) {
         if (cancelled) return;
         if (err?.response?.status === 401) return;

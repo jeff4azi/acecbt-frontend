@@ -167,49 +167,98 @@ function AdPopup({ ads, onClose }) {
   );
 }
 
+// ─── Accent colour helper (same logic as Browse page) ────────────────────────
+
+const ACCENTS = [
+  { bar: "bg-blue-500", icon: "text-blue-400" },
+  { bar: "bg-violet-500", icon: "text-violet-400" },
+  { bar: "bg-emerald-500", icon: "text-emerald-400" },
+  { bar: "bg-orange-500", icon: "text-orange-400" },
+  { bar: "bg-rose-500", icon: "text-rose-400" },
+  { bar: "bg-cyan-500", icon: "text-cyan-400" },
+];
+
+function accentFor(title = "") {
+  let hash = 0;
+  for (let i = 0; i < title.length; i++)
+    hash = (hash * 31 + title.charCodeAt(i)) >>> 0;
+  return ACCENTS[hash % ACCENTS.length];
+}
+
 // ─── Quiz Card ────────────────────────────────────────────────────────────────
 
 function QuizCard({ quiz, unlocked }) {
+  const accent = accentFor(quiz.title);
+
   return (
     <Link
       to={`/quiz/${quiz.id}`}
-      className="group bg-white rounded-2xl shadow-sm border border-gray-100 p-4 flex flex-col gap-3 hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200"
+      className="group bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col hover:shadow-md hover:-translate-y-0.5 transition-all duration-200"
     >
-      <div className="flex items-start justify-between gap-2">
-        <h3 className="font-semibold text-gray-900 text-sm leading-snug line-clamp-2">
+      {/* Accent bar */}
+      <div className={`h-1 w-full ${accent.bar}`} />
+
+      <div className="p-4 flex flex-col flex-1 gap-3">
+        {/* Status + pass mark */}
+        <div className="flex items-center justify-between gap-2">
+          {unlocked ? (
+            <span className="inline-flex items-center gap-1.5 bg-green-50 text-green-700 text-[11px] font-semibold px-2.5 py-1 rounded-full">
+              <Unlock size={10} strokeWidth={2.5} /> Unlocked
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 bg-amber-50 text-amber-600 text-[11px] font-semibold px-2.5 py-1 rounded-full">
+              <Lock size={10} strokeWidth={2.5} /> Premium
+            </span>
+          )}
+          <span className="text-xs text-gray-400 font-medium">
+            Pass: {quiz.pass_mark ?? 50}%
+          </span>
+        </div>
+
+        {/* Title */}
+        <h3 className="font-bold text-gray-900 text-sm leading-snug line-clamp-2 group-hover:text-primary transition-colors">
           {quiz.title}
         </h3>
-        {unlocked ? (
-          <span className="shrink-0 flex items-center gap-1 bg-green-100 text-green-700 text-xs font-semibold px-2 py-0.5 rounded-full">
-            <Unlock size={11} /> Unlocked
-          </span>
-        ) : (
-          <span className="shrink-0 flex items-center gap-1 bg-amber-50 text-amber-600 text-xs font-semibold px-2 py-0.5 rounded-full">
-            <Lock size={11} /> Premium
-          </span>
+
+        {/* Description */}
+        <p className="text-xs text-gray-400 line-clamp-2 leading-relaxed flex-1">
+          {quiz.description || "No description available."}
+        </p>
+
+        {/* Attempts badge */}
+        {(quiz.attempt_count ?? 0) > 0 && (
+          <div>
+            <span className="inline-flex items-center gap-1 text-[11px] bg-tint text-primary-dark px-2 py-0.5 rounded-lg font-medium">
+              <TrendingUp size={11} />
+              {quiz.attempt_count} attempts
+            </span>
+          </div>
         )}
-      </div>
-      <p className="text-xs text-gray-500 line-clamp-2 min-h-[2rem]">
-        {quiz.description || "No description available."}
-      </p>
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="flex items-center gap-1 text-[11px] bg-tint text-primary-dark px-2 py-0.5 rounded-lg font-medium">
-          <TrendingUp size={11} />
-          {quiz.attempt_count ?? 0} attempts
-        </span>
-      </div>
-      <div className="flex items-center gap-3 text-xs text-gray-500 mt-auto pt-2 border-t border-gray-50">
-        <span className="flex items-center gap-1">
-          <BookOpen size={12} />
-          {quiz.question_count ?? 0} Qs
-        </span>
-        <span className="flex items-center gap-1">
-          <Clock size={12} />
-          {quiz.duration_minutes} min
-        </span>
-        <span className="ml-auto font-bold text-primary text-sm">
-          ₦{Number(quiz.price).toLocaleString()}
-        </span>
+
+        {/* Stats row */}
+        <div className="flex items-center gap-3 pt-2.5 border-t border-gray-50 mt-auto">
+          <span
+            className={`flex items-center gap-1.5 text-xs font-medium ${accent.icon}`}
+          >
+            <BookOpen size={12} strokeWidth={2} />
+            <span className="text-gray-600">{quiz.question_count ?? 0} Qs</span>
+          </span>
+          <span
+            className={`flex items-center gap-1.5 text-xs font-medium ${accent.icon}`}
+          >
+            <Clock size={12} strokeWidth={2} />
+            <span className="text-gray-600">{quiz.duration_minutes} min</span>
+          </span>
+          <div className="ml-auto flex items-center gap-1">
+            <span className="font-extrabold text-primary text-sm">
+              ₦{Number(quiz.price).toLocaleString()}
+            </span>
+            <ChevronRight
+              size={14}
+              className="text-gray-300 group-hover:text-primary group-hover:translate-x-0.5 transition-all"
+            />
+          </div>
+        </div>
       </div>
     </Link>
   );
