@@ -50,7 +50,7 @@ export default function AdminLayout() {
 
   async function handleSignOut() {
     await signOut();
-    navigate("/admin/login", { replace: true });
+    navigate("/login", { replace: true });
   }
 
   return (
