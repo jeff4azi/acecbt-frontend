@@ -6,12 +6,14 @@ import {
   Megaphone,
   Settings,
   LogOut,
+  Users,
 } from "lucide-react";
 import logo from "../assets/AceCbtLogo.png";
 import { useAuth } from "../context/AuthContext";
 
 const navItems = [
   { to: "/admin", label: "Dashboard", icon: LayoutDashboard, end: true },
+  { to: "/admin/users", label: "Users", icon: Users },
   { to: "/admin/quizzes", label: "Quizzes", icon: FileQuestion },
   { to: "/admin/codes", label: "Codes", icon: KeyRound },
   { to: "/admin/ads", label: "Ads", icon: Megaphone },

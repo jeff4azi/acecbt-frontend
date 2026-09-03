@@ -25,6 +25,7 @@ import AdminQuizForm from "./pages/admin/QuizForm";
 import AdminCodes from "./pages/admin/Codes";
 import AdminAds from "./pages/admin/Ads";
 import AdminSettings from "./pages/admin/Settings";
+import AdminUsers from "./pages/admin/Users";
 
 export default function App() {
   return (
@@ -54,6 +55,7 @@ export default function App() {
           {/* Admin app */}
           <Route element={<AdminLayout />}>
             <Route path="/admin" element={<AdminDashboard />} />
+            <Route path="/admin/users" element={<AdminUsers />} />
             <Route path="/admin/quizzes" element={<AdminQuizzes />} />
             <Route path="/admin/quizzes/new" element={<AdminQuizForm />} />
             <Route
