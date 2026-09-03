@@ -1,5 +1,11 @@
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { CheckCircle, XCircle, RotateCcw, Trophy } from "lucide-react";
+import {
+  CheckCircle,
+  XCircle,
+  RotateCcw,
+  Trophy,
+  Lightbulb,
+} from "lucide-react";
 
 // ─── Fallback mock result (used when navigating to the page standalone) ───────
 
@@ -251,7 +257,8 @@ export default function Result() {
                     {item.options.map((opt, oi) => {
                       const isSelected = oi === item.selected_option;
                       const isRight = oi === item.correct_option;
-                      const optHasText = !!opt.text && opt.text.trim().length > 0;
+                      const optHasText =
+                        !!opt.text && opt.text.trim().length > 0;
                       const optHasImage = !!opt.image_url;
 
                       let cls = "text-gray-600 bg-gray-50";
@@ -281,7 +288,13 @@ export default function Result() {
                             )}
                             <span className="text-xs">
                               {String.fromCharCode(65 + oi)}.{" "}
-                              {optHasText ? opt.text : <em className="text-[11px] opacity-70">(image only)</em>}
+                              {optHasText ? (
+                                opt.text
+                              ) : (
+                                <em className="text-[11px] opacity-70">
+                                  (image only)
+                                </em>
+                              )}
                             </span>
                             {isSelected && !isRight && (
                               <span className="ml-auto text-red-400 text-xs">
@@ -316,11 +329,17 @@ export default function Result() {
                   </div>
 
                   {item.explanation && (
-                    <div className="mt-3 pt-3 border-t border-gray-100 text-xs text-gray-500">
-                      <span className="font-semibold text-gray-600">
-                        Explanation:{" "}
-                      </span>
-                      {item.explanation}
+                    <div className="mt-3 flex gap-2.5 bg-amber-50 border border-amber-200 rounded-xl px-3.5 py-3">
+                      <Lightbulb
+                        size={15}
+                        className="text-amber-500 shrink-0 mt-0.5"
+                      />
+                      <div className="text-xs text-amber-900 leading-relaxed">
+                        <span className="font-semibold block mb-0.5">
+                          Explanation
+                        </span>
+                        {item.explanation}
+                      </div>
                     </div>
                   )}
 
