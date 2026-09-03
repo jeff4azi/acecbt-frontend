@@ -7,6 +7,8 @@ import AdminLayout from "./components/AdminLayout";
 // Student pages
 import Login from "./pages/student/Login";
 import Register from "./pages/student/Register";
+import ForgotPassword from "./pages/student/ForgotPassword";
+import ResetPassword from "./pages/student/ResetPassword";
 import Home from "./pages/student/Home";
 import Browse from "./pages/student/Browse";
 import QuizDetail from "./pages/student/QuizDetail";
@@ -32,6 +34,8 @@ export default function App() {
           {/* Auth (no layout) */}
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
 
           {/* Quiz taking — full-screen, no nav chrome */}
           <Route path="/quiz/:quizId/take" element={<QuizTaking />} />

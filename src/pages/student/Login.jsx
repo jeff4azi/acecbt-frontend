@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, KeyRound } from "lucide-react";
 import { supabase } from "../../lib/supabaseClient";
 import { useAuth } from "../../context/AuthContext";
 import logo from "../../assets/AceCbtLogo.png";
@@ -94,9 +94,18 @@ export default function Login() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Password
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-sm font-medium text-gray-700">
+                Password
+              </label>
+              <Link
+                to="/forgot-password"
+                className="flex items-center gap-1 text-xs text-primary hover:underline"
+              >
+                <KeyRound size={12} />
+                Forgot password?
+              </Link>
+            </div>
             <div className="relative">
               <input
                 type={showPassword ? "text" : "password"}
