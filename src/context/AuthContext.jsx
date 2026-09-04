@@ -5,6 +5,7 @@ import {
   useState,
   useCallback,
   useMemo,
+  useRef,
 } from "react";
 import { supabase } from "../lib/supabaseClient";
 import api from "../lib/api";
@@ -17,12 +18,15 @@ const VALID_DEV_ROLES = ["student", "creator", "admin"];
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null); // { id, full_name, email, is_admin } from /api/me
-  const [loading, setLoading] = useState(true); // true while initializing (session + profile loading)
+  const [loading, setLoading] = useState(true); // true until session + profile are both resolved
   const [devRole, setDevRole] = useState(() => {
     if (typeof window === "undefined") return null;
     const stored = window.localStorage.getItem(DEV_ROLE_KEY);
     return VALID_DEV_ROLES.includes(stored) ? stored : null;
   });
+
+  // profileFetchId lets us ignore stale responses when multiple fetches race
+  const profileFetchId = useRef(0);
 
   const loadProfile = useCallback(async (activeSession) => {
     if (!activeSession?.access_token) {
@@ -30,22 +34,26 @@ export function AuthProvider({ children }) {
       setLoading(false);
       return;
     }
+
+    // Stamp this fetch so any previous in-flight one is ignored
+    const fetchId = ++profileFetchId.current;
+
     try {
       const res = await api.get("/me");
+      if (fetchId !== profileFetchId.current) return; // stale — discard
       setProfile(res.data ?? null);
     } catch (err) {
+      if (fetchId !== profileFetchId.current) return;
       const code = err?.response?.data?.code;
       if (
         code === "MISSING_TOKEN" ||
         code === "TOKEN_EXPIRED" ||
         code === "INVALID_TOKEN"
       ) {
-        // Session is toast — clear everything
         setProfile(null);
         setSession(null);
         await supabase.auth.signOut().catch(() => {});
       } else {
-        // Network/server issue — leave profile null but keep session
         console.warn(
           "[Auth] Failed to load /api/me profile:",
           err?.message || err,
@@ -53,7 +61,10 @@ export function AuthProvider({ children }) {
         setProfile(null);
       }
     } finally {
-      setLoading(false);
+      // Only mark loading done for the latest fetch
+      if (fetchId === profileFetchId.current) {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -76,9 +87,12 @@ export function AuthProvider({ children }) {
   }, [loadProfile]);
 
   // ── React to auth state changes (login, logout, token refresh, etc.) ──────
+  // Skip INITIAL_SESSION — the effect above already handles it.
+  // Only react to real transitions: SIGNED_IN, SIGNED_OUT, TOKEN_REFRESHED.
   useEffect(() => {
     const { data: listener } = supabase.auth.onAuthStateChange(
-      (_event, newSession) => {
+      (event, newSession) => {
+        if (event === "INITIAL_SESSION") return; // handled by getSession() above
         setSession(newSession);
         if (newSession) {
           setLoading(true);
