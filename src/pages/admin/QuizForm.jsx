@@ -805,6 +805,7 @@ export default function QuizForm() {
     price: "",
     duration_minutes: "",
     pass_mark: 50,
+    question_limit: "",
     is_published: false,
   });
   const [questions, setQuestions] = useState([]);
@@ -840,6 +841,7 @@ export default function QuizForm() {
           price: q.price,
           duration_minutes: q.duration_minutes,
           pass_mark: q.pass_mark,
+          question_limit: q.question_limit ?? "",
           is_published: q.is_published,
         });
         setExistingQs(questionsRes.data);
@@ -875,6 +877,11 @@ export default function QuizForm() {
         price: Number(details.price),
         duration_minutes: Number(details.duration_minutes),
         pass_mark: Number(details.pass_mark),
+        // question_limit: empty string → null (no limit), otherwise a positive int
+        question_limit:
+          details.question_limit !== "" && details.question_limit !== null
+            ? Number(details.question_limit)
+            : null,
         is_published: details.is_published,
       };
 
@@ -1109,7 +1116,7 @@ export default function QuizForm() {
                 className="w-full px-4 py-3 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm resize-none"
               />
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Price (₦)
@@ -1159,6 +1166,28 @@ export default function QuizForm() {
                   }
                   className="w-full px-4 py-3 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm"
                 />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Questions per attempt
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  value={details.question_limit}
+                  onChange={(e) =>
+                    setDetails((d) => ({
+                      ...d,
+                      question_limit: e.target.value,
+                    }))
+                  }
+                  placeholder="Leave blank for all"
+                  className="w-full px-4 py-3 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm"
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  Leave blank to give students the full question pool (still
+                  shuffled).
+                </p>
               </div>
             </div>
             <div className="flex items-center justify-between p-4 bg-tint rounded-xl">

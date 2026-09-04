@@ -94,11 +94,12 @@ export default function QuizTaking() {
   // ── Persist answers + currentIndex whenever they change ──────────────────
   useEffect(() => {
     if (!user || !quizId || timeLeft === null) return;
-    // Read the existing startedAt from storage so we never overwrite it
+    // Read the existing startedAt and questions from storage so we never overwrite them
     const existing = loadSession(quizId, user.id);
     if (!existing?.startedAt) return; // not initialized yet, load() handles the first write
     saveSession(quizId, user.id, {
       startedAt: existing.startedAt,
+      questions: existing.questions, // preserve the cached question subset
       answers,
       currentIndex,
     });
@@ -115,54 +116,63 @@ export default function QuizTaking() {
 
     async function load() {
       try {
-        const [quizRes, questionsRes] = await Promise.all([
-          api.get(`/quizzes/${quizId}`),
-          api.get(`/quizzes/${quizId}/questions`),
-        ]);
+        // Check for an existing session first — if there's one with a cached
+        // question set, we can skip the /attempt-questions API call entirely
+        // so a mid-quiz refresh resumes the exact same question subset.
+        const saved = loadSession(quizId, user.id);
+
+        // Always fetch quiz metadata (needed for duration & pass_mark)
+        const quizRes = await api.get(`/quizzes/${quizId}`);
         if (cancelled) return;
 
         const loadedQuiz = quizRes.data;
-        const loadedQuestions = questionsRes.data;
         const totalSeconds = loadedQuiz.duration_minutes * 60;
-
         setQuiz(loadedQuiz);
-        setQuestions(loadedQuestions);
 
-        // Restore session if one exists for this quiz+user
-        const saved = loadSession(quizId, user.id);
+        if (
+          saved?.startedAt &&
+          Array.isArray(saved.questions) &&
+          saved.questions.length > 0
+        ) {
+          // ── Resume: use cached question subset, not a new random draw ──
+          const loadedQuestions = saved.questions;
+          setQuestions(loadedQuestions);
 
-        if (saved?.startedAt) {
-          // Calculate how much time is genuinely left based on wall-clock
           const elapsed = Math.floor((Date.now() - saved.startedAt) / 1000);
           const remaining = totalSeconds - elapsed;
 
           if (remaining <= 0) {
-            // Time already ran out while they were away — auto-submit immediately
-            // Restore answers first so the result is accurate
+            // Time ran out while away — restore answers then auto-submit
             const restoredAnswers = saved.answers ?? {};
             answersRef.current = restoredAnswers;
             setAnswers(restoredAnswers);
             setQuestions(loadedQuestions);
             questionsRef.current = loadedQuestions;
-            setQuiz(loadedQuiz);
             quizRef.current = loadedQuiz;
             setTimeLeft(0);
             timeLeftRef.current = 0;
             if (!cancelled) setLoading(false);
-            // Tiny defer so state is flushed before submit runs
             setTimeout(() => handleSubmit(true), 50);
             return;
           }
 
-          // Restore everything
           setAnswers(saved.answers ?? {});
           setCurrentIndex(saved.currentIndex ?? 0);
           setTimeLeft(remaining);
         } else {
-          // Fresh attempt — record start time in the session
+          // ── Fresh attempt: fetch a new random subset from the server ──
+          const questionsRes = await api.get(
+            `/quizzes/${quizId}/attempt-questions`,
+          );
+          if (cancelled) return;
+
+          const loadedQuestions = questionsRes.data;
+          setQuestions(loadedQuestions);
+
           const startedAt = Date.now();
           saveSession(quizId, user.id, {
             startedAt,
+            questions: loadedQuestions,
             answers: {},
             currentIndex: 0,
           });

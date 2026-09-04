@@ -241,7 +241,11 @@ function QuizCard({ quiz, unlocked }) {
             className={`flex items-center gap-1.5 text-xs font-medium ${accent.icon}`}
           >
             <BookOpen size={12} strokeWidth={2} />
-            <span className="text-gray-600">{quiz.question_count ?? 0} Qs</span>
+            <span className="text-gray-600">
+              {quiz.question_limit != null
+                ? `${quiz.question_limit} Qs`
+                : `${quiz.question_count ?? 0} Qs`}
+            </span>
           </span>
           <span
             className={`flex items-center gap-1.5 text-xs font-medium ${accent.icon}`}

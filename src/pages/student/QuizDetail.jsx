@@ -27,6 +27,16 @@ function useCopyToClipboard(text, timeout = 2000) {
   return { copied, copy };
 }
 
+// Clear any stale quiz session from a previous attempt so the next
+// "Start Quiz" click always generates a fresh random subset.
+function clearQuizSession(quizId, userId) {
+  try {
+    sessionStorage.removeItem(`quiz_session_${quizId}_${userId}`);
+  } catch {
+    // ignore
+  }
+}
+
 export default function QuizDetail() {
   const { quizId } = useParams();
   const navigate = useNavigate();
@@ -181,10 +191,14 @@ export default function QuizDetail() {
                   Questions
                 </div>
                 <div className="text-lg font-extrabold text-white">
-                  {quiz.question_count ?? 0}
+                  {quiz.question_limit != null
+                    ? quiz.question_limit
+                    : (quiz.question_count ?? 0)}
                 </div>
                 <div className="text-[10px] text-white/70 mt-0.5">
-                  multiple choice
+                  {quiz.question_limit != null
+                    ? "per attempt"
+                    : "multiple choice"}
                 </div>
               </div>
               <div className="bg-white/10 backdrop-blur-sm rounded-2xl px-3 py-3 border border-white/15">
@@ -245,7 +259,11 @@ export default function QuizDetail() {
               </p>
             </div>
             <button
-              onClick={() => navigate(`/quiz/${quizId}/take`)}
+              onClick={() => {
+                // Clear any stale session so a fresh random subset is generated
+                if (user) clearQuizSession(quizId, user.id);
+                navigate(`/quiz/${quizId}/take`);
+              }}
               className="w-full bg-primary hover:bg-primary-dark text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 text-base transition shadow-md"
             >
               <Play size={18} /> Start Quiz

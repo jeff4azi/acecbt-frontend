@@ -109,7 +109,9 @@ function QuizCard({ quiz, unlocked }) {
           >
             <BookOpen size={13} strokeWidth={2} />
             <span className="text-gray-600">
-              {quiz.question_count ?? "—"} Qs
+              {quiz.question_limit != null
+                ? `${quiz.question_limit} Qs`
+                : `${quiz.question_count ?? "—"} Qs`}
             </span>
           </div>
           <div
