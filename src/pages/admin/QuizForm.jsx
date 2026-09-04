@@ -1185,8 +1185,7 @@ export default function QuizForm() {
                   className="w-full px-4 py-3 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm"
                 />
                 <p className="text-xs text-gray-400 mt-1">
-                  Leave blank to give students the full question pool (still
-                  shuffled).
+                  Leave blank to give students the full question.
                 </p>
               </div>
             </div>
