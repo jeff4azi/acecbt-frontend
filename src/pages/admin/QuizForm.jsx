@@ -11,6 +11,7 @@ import {
   ChevronUp,
   AlertCircle,
   ShieldAlert,
+  TriangleAlert,
 } from "lucide-react";
 import api from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
@@ -553,27 +554,27 @@ function BulkImport({ onImport }) {
     });
   }
 
- function parseJSON() {
-  setError("");
-  setParsed(null);
-  try {
-    // Strip an optional fenced code block (```json ... ``` or plain ``` ... ```)
-    // wrapping the pasted text. If no fences are present, this is a no-op —
-    // trim() alone leaves plain JSON untouched.
-    const cleaned = jsonText
-      .trim()
-      .replace(/^```[a-zA-Z]*\n?/, "")
-      .replace(/```$/, "")
-      .trim();
+  function parseJSON() {
+    setError("");
+    setParsed(null);
+    try {
+      // Strip an optional fenced code block (```json ... ``` or plain ``` ... ```)
+      // wrapping the pasted text. If no fences are present, this is a no-op —
+      // trim() alone leaves plain JSON untouched.
+      const cleaned = jsonText
+        .trim()
+        .replace(/^```[a-zA-Z]*\n?/, "")
+        .replace(/```$/, "")
+        .trim();
 
-    const data = JSON.parse(cleaned);
-    if (!data.questions || !Array.isArray(data.questions))
-      throw new Error('Expected { "questions": [...] }');
-    setParsed(data.questions);
-  } catch (err) {
-    setError(`Invalid JSON: ${err.message}`);
+      const data = JSON.parse(cleaned);
+      if (!data.questions || !Array.isArray(data.questions))
+        throw new Error('Expected { "questions": [...] }');
+      setParsed(data.questions);
+    } catch (err) {
+      setError(`Invalid JSON: ${err.message}`);
+    }
   }
-}
 
   function importAll() {
     if (!parsed) return;
@@ -679,6 +680,83 @@ function BulkImport({ onImport }) {
   );
 }
 
+// ─── Confirm Clear Overlay ────────────────────────────────────────────────────
+
+function ConfirmClearOverlay({
+  savedCount,
+  pendingCount,
+  onConfirm,
+  onCancel,
+  clearing,
+}) {
+  const total = savedCount + pendingCount;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+        onClick={!clearing ? onCancel : undefined}
+      />
+      {/* Dialog */}
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-5">
+        {/* Icon */}
+        <div className="flex items-center justify-center w-14 h-14 rounded-full bg-red-100 mx-auto">
+          <TriangleAlert size={28} className="text-red-600" />
+        </div>
+
+        {/* Copy */}
+        <div className="text-center space-y-1.5">
+          <h2 className="text-lg font-bold text-gray-900">
+            Clear all questions?
+          </h2>
+          <p className="text-sm text-gray-500">
+            This will permanently delete{" "}
+            <span className="font-semibold text-gray-800">
+              {total} question{total !== 1 ? "s" : ""}
+            </span>
+            {savedCount > 0 && pendingCount > 0 && (
+              <>
+                {" "}
+                ({savedCount} saved + {pendingCount} pending)
+              </>
+            )}
+            {savedCount > 0 && pendingCount === 0 && <> from the database</>}
+            {savedCount === 0 && pendingCount > 0 && (
+              <> from the pending list</>
+            )}
+            . This cannot be undone.
+          </p>
+        </div>
+
+        {/* Actions */}
+        <div className="flex gap-3">
+          <button
+            onClick={onCancel}
+            disabled={clearing}
+            className="flex-1 border border-gray-200 text-gray-700 hover:bg-gray-50 font-semibold py-3 rounded-xl text-sm transition disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={clearing}
+            className="flex-1 bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white font-semibold py-3 rounded-xl text-sm transition flex items-center justify-center gap-2"
+          >
+            {clearing ? (
+              <>
+                <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                Clearing…
+              </>
+            ) : (
+              "Yes, clear all"
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Admin Gate ───────────────────────────────────────────────────────────────
 
 function AdminGateCTA() {
@@ -738,6 +816,8 @@ export default function QuizForm() {
   const [saveError, setSaveError] = useState("");
   const [saveOk, setSaveOk] = useState(false);
   const [editingQuestion, setEditingQuestion] = useState(null); // { question, source: 'existing'|'pending', idx }
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const manualFormRef = useRef(null);
 
   // Load existing quiz when editing
@@ -942,6 +1022,30 @@ export default function QuizForm() {
     }
   }
 
+  // ── Clear all questions ───────────────────────────────────────────────────
+
+  async function handleClearAll() {
+    setClearing(true);
+    try {
+      // Delete all saved questions from the DB in parallel
+      await Promise.all(
+        existingQs.map((q) => api.delete(`/questions/${q.id}`)),
+      );
+      setExistingQs([]);
+      setQuestions([]);
+      setEditingQuestion(null);
+      setShowClearConfirm(false);
+    } catch (err) {
+      const status = err?.response?.status;
+      if (status !== 401 && status !== 403) {
+        setSaveError(err.response?.data?.error ?? "Failed to clear questions.");
+      }
+      setShowClearConfirm(false);
+    } finally {
+      setClearing(false);
+    }
+  }
+
   if (authLoading) {
     return (
       <div className="min-h-screen bg-tint flex items-center justify-center">
@@ -965,7 +1069,6 @@ export default function QuizForm() {
             Fill in quiz details and add questions below
           </p>
         </div>
-
         {/* ── Section A: Quiz Details ── */}
         <section className="bg-white rounded-2xl shadow-sm p-6">
           <h2 className="font-bold text-gray-800 text-base mb-5">
@@ -1106,16 +1209,28 @@ export default function QuizForm() {
                 {existingQs.length} saved · {questions.length} pending save
               </p>
             </div>
-            <button
-              onClick={() => setShowQuestions((v) => !v)}
-              className="text-gray-400 hover:text-gray-600 transition"
-            >
-              {showQuestions ? (
-                <ChevronUp size={18} />
-              ) : (
-                <ChevronDown size={18} />
+            <div className="flex items-center gap-2">
+              {/* Clear All button — only shown when there's something to clear */}
+              {(existingQs.length > 0 || questions.length > 0) && (
+                <button
+                  onClick={() => setShowClearConfirm(true)}
+                  className="flex items-center gap-1.5 text-xs font-medium text-red-500 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-lg transition"
+                >
+                  <Trash2 size={13} />
+                  Clear All
+                </button>
               )}
-            </button>
+              <button
+                onClick={() => setShowQuestions((v) => !v)}
+                className="text-gray-400 hover:text-gray-600 transition"
+              >
+                {showQuestions ? (
+                  <ChevronUp size={18} />
+                ) : (
+                  <ChevronDown size={18} />
+                )}
+              </button>
+            </div>
           </div>
 
           {showQuestions && (
@@ -1201,6 +1316,17 @@ export default function QuizForm() {
           )}
         </section>
       </div>
+
+      {/* ── Confirm Clear Overlay ── */}
+      {showClearConfirm && (
+        <ConfirmClearOverlay
+          savedCount={existingQs.length}
+          pendingCount={questions.length}
+          onConfirm={handleClearAll}
+          onCancel={() => setShowClearConfirm(false)}
+          clearing={clearing}
+        />
+      )}
     </div>
   );
 }
