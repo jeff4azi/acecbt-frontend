@@ -10,6 +10,7 @@ import {
   KeyRound,
 } from "lucide-react";
 import api from "../../lib/api";
+import { useAuth } from "../../context/AuthContext";
 
 function relativeTime(ts) {
   const diff = Date.now() - new Date(ts).getTime();
@@ -35,6 +36,7 @@ function getInitials(name) {
 const PAGE_SIZE = 20;
 
 export default function UsersPage() {
+  const { authLoading } = useAuth();
   const [users, setUsers] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -53,6 +55,7 @@ export default function UsersPage() {
   }, [search]);
 
   const fetchUsers = useCallback(() => {
+    if (authLoading) return;
     setLoading(true);
     setError("");
     api
@@ -63,13 +66,21 @@ export default function UsersPage() {
       })
       .catch(() => setError("Failed to load users."))
       .finally(() => setLoading(false));
-  }, [page, query]);
+  }, [page, query, authLoading]);
 
   useEffect(() => {
     fetchUsers();
   }, [fetchUsers]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-tint flex items-center justify-center">
+        <span className="w-7 h-7 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-tint">

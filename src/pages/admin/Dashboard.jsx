@@ -170,9 +170,11 @@ export default function Dashboard() {
   if (!user || !isAdmin) return <AdminGateCTA />;
 
   if (!data) {
+    // Data failed to load — show spinner rather than an error flash
+    // (real persistent errors will be visible via the console)
     return (
       <div className="min-h-screen bg-tint flex items-center justify-center">
-        <p className="text-gray-500">Failed to load dashboard.</p>
+        <span className="w-7 h-7 border-4 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
