@@ -3,6 +3,7 @@ import { AuthProvider } from "./context/AuthContext";
 
 import StudentLayout from "./components/StudentLayout";
 import AdminLayout from "./components/AdminLayout";
+import AdminRedirect from "./components/AdminRedirect";
 
 // Student pages
 import Login from "./pages/student/Login";
@@ -41,8 +42,15 @@ export default function App() {
           {/* Quiz taking — full-screen, no nav chrome */}
           <Route path="/quiz/:quizId/take" element={<QuizTaking />} />
 
-          {/* Student app */}
-          <Route element={<StudentLayout />}>
+          {/* Student app — AdminRedirect sends admins to /admin unless they
+              explicitly chose to browse the site via the "View Site" button */}
+          <Route
+            element={
+              <AdminRedirect>
+                <StudentLayout />
+              </AdminRedirect>
+            }
+          >
             <Route path="/" element={<Home />} />
             <Route path="/browse" element={<Browse />} />
             <Route path="/quiz/:quizId" element={<QuizDetail />} />
