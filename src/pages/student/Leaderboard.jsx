@@ -342,7 +342,7 @@ export default function Leaderboard() {
         {tab === "alltime" && (
           <div className="bg-white rounded-2xl shadow-sm px-5 py-3.5 mb-5">
             <p className="text-xs text-gray-500">
-              Each player's single best score across all attempts, of all time.
+              Each student's single best score across all attempts, of all time.
             </p>
           </div>
         )}
