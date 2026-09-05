@@ -784,6 +784,7 @@ function BulkImport({ onImport }) {
   const [parsed, setParsed] = useState(null); // { passages, questions }
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   function copyPrompt() {
     navigator.clipboard.writeText(AI_PROMPT).then(() => {
@@ -810,9 +811,10 @@ function BulkImport({ onImport }) {
     }
   }
 
-  function importAll() {
+  async function importAll() {
     if (!parsed) return;
-    onImport({
+    setImporting(true);
+    await onImport({
       passages: parsed.passages,
       questions: parsed.questions.map((q) => ({
         id: makeId(),
@@ -829,11 +831,11 @@ function BulkImport({ onImport }) {
         })),
         correct_option_index: q.correct_option ?? 0,
         explanation: q.explanation || "",
-        // passage_ref is preserved as a string for display; resolved to UUID on save
         _passage_ref: q.passage_ref ?? null,
         passage_id: null,
       })),
     });
+    setImporting(false);
     setJsonText("");
     setParsed(null);
   }
@@ -925,9 +927,17 @@ function BulkImport({ onImport }) {
           </div>
           <button
             onClick={importAll}
-            className="w-full bg-primary hover:bg-primary-dark text-white font-semibold py-3 rounded-xl text-sm transition"
+            disabled={importing}
+            className="w-full bg-primary hover:bg-primary-dark disabled:opacity-60 text-white font-semibold py-3 rounded-xl text-sm transition flex items-center justify-center gap-2"
           >
-            Import All ({parsed.questions.length})
+            {importing ? (
+              <>
+                <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                Importing…
+              </>
+            ) : (
+              `Import All (${parsed.questions.length})`
+            )}
           </button>
         </div>
       )}
@@ -1311,62 +1321,53 @@ export default function QuizForm() {
     }
   }
 
-  // Handle bulk import — passages come in with _passage_ref strings on questions.
-  // If the quiz is already saved we can send them straight to the import endpoint.
-  // If not, we queue them locally and resolve refs when the quiz is saved.
+  // Handle bulk import — always sends straight to the backend import endpoint.
+  // The quiz must already be saved (savedQuizId must exist) because questions
+  // need a quiz_id FK. If the quiz isn't saved yet, prompt the admin to save first.
   async function handleBulkImport({
     passages: importedPassages,
     questions: importedQuestions,
   }) {
     const currentQuizId = savedQuizId;
 
-    if (
-      currentQuizId &&
-      (importedPassages?.length > 0 || importedQuestions.length > 0)
-    ) {
-      // Quiz already exists — send to backend import endpoint which handles passage creation & ref resolution
-      try {
-        const res = await api.post(
-          `/quizzes/${currentQuizId}/questions/import`,
-          {
-            passages: importedPassages,
-            questions: importedQuestions.map((q) => ({
-              question_text: q.question_text,
-              question_image: q.question_image_url ?? null,
-              options: q.options.map((o) => ({
-                text: o.text,
-                image: o.image_url ?? null,
-              })),
-              correct_option: q.correct_option_index,
-              explanation: q.explanation || null,
-              passage_ref: q._passage_ref ?? null,
-            })),
-          },
-        );
-        // Refresh both passages and questions
-        const [qRes, pRes] = await Promise.all([
-          api.get(`/quizzes/${currentQuizId}/questions`),
-          api.get(`/quizzes/${currentQuizId}/passages`),
-        ]);
-        setExistingQs(qRes.data);
-        setPassages(pRes.data ?? []);
-        setSaveOk(true);
-        setTimeout(() => setSaveOk(false), 3000);
-      } catch (err) {
-        const status = err?.response?.status;
-        if (status !== 401 && status !== 403)
-          setSaveError(err.response?.data?.error ?? "Import failed.");
-      }
-    } else {
-      // Quiz not saved yet — queue locally. Passages will be sent on save.
-      // Store passage definitions on the question list to be processed during handleSave.
-      setQuestions((prev) => [
-        ...prev,
-        ...importedQuestions.map((q) => ({
-          ...q,
-          _importedPassages: importedPassages,
+    if (!currentQuizId) {
+      setSaveError(
+        "Please save the quiz details above before importing questions.",
+      );
+      // Scroll to the top of the page so the error is visible
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+
+    try {
+      await api.post(`/quizzes/${currentQuizId}/questions/import`, {
+        passages: importedPassages ?? [],
+        questions: importedQuestions.map((q) => ({
+          question_text: q.question_text,
+          question_image: q.question_image_url ?? null,
+          options: q.options.map((o) => ({
+            text: o.text,
+            image: o.image_url ?? null,
+          })),
+          correct_option: q.correct_option_index,
+          explanation: q.explanation || null,
+          passage_ref: q._passage_ref ?? null,
         })),
+      });
+
+      // Refresh both passages and questions so the UI reflects what was saved
+      const [qRes, pRes] = await Promise.all([
+        api.get(`/quizzes/${currentQuizId}/questions`),
+        api.get(`/quizzes/${currentQuizId}/passages`),
       ]);
+      setExistingQs(qRes.data);
+      setPassages(pRes.data ?? []);
+      setSaveOk(true);
+      setTimeout(() => setSaveOk(false), 3000);
+    } catch (err) {
+      const status = err?.response?.status;
+      if (status !== 401 && status !== 403)
+        setSaveError(err.response?.data?.error ?? "Import failed.");
     }
   }
 
