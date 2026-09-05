@@ -12,6 +12,8 @@ import {
   AlertCircle,
   ShieldAlert,
   TriangleAlert,
+  FileText,
+  BookOpen,
 } from "lucide-react";
 import api from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
@@ -24,10 +26,17 @@ const AI_PROMPT = `You are formatting multiple-choice quiz questions into a stri
 Convert the questions I provide below into this exact JSON structure:
 
 {
+  "passages": [
+    {
+      "title": "Passage 1",
+      "body": "Full text of the passage here…"
+    }
+  ],
   "questions": [
     {
       "question_text": "string - the question",
       "question_image": null,
+      "passage_ref": "Passage 1",
       "options": [
         { "text": "string - option text", "image": null },
         { "text": "string - option text", "image": null }
@@ -45,6 +54,8 @@ Rules you must follow exactly:
 4. Keep each question's options in the same order they were originally given.
 5. Output the JSON wrapped in a single fenced code block (\`\`\`json ... \`\`\`) so it's easy to copy — no commentary, explanation, or extra text outside the code block.
 6. Do not skip, merge, reword, or reorder questions. Convert them exactly as given.
+7. PASSAGES: If questions are based on a reading passage, extract each passage into the top-level "passages" array. Each passage needs a unique "title" (e.g. "Passage 1", "Passage 2"). For every question that belongs to a passage, set "passage_ref" to the exact title of its passage. For questions NOT based on any passage, set "passage_ref" to null.
+8. If there are NO passages at all, you may omit the "passages" key entirely (or set it to an empty array []).
 
 Here are my questions:
 
@@ -66,16 +77,240 @@ function blankForm() {
     options: [blankOption(), blankOption(), blankOption(), blankOption()],
     correct_option_index: 0,
     explanation: "",
+    passage_id: null,
   };
+}
+
+// ─── Passage Manager ──────────────────────────────────────────────────────────
+// Handles creating, editing, and deleting passages for the quiz.
+
+function PassageManager({ quizId, passages, onPassagesChange }) {
+  const [expanded, setExpanded] = useState(false);
+  const [editingId, setEditingId] = useState(null); // passage id being edited
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ title: "", body: "" });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  function startNew() {
+    setEditingId(null);
+    setForm({ title: "", body: "" });
+    setShowForm(true);
+    setExpanded(true);
+  }
+
+  function startEdit(p) {
+    setEditingId(p.id);
+    setForm({ title: p.title ?? "", body: p.body });
+    setShowForm(true);
+    setExpanded(true);
+  }
+
+  function cancelForm() {
+    setShowForm(false);
+    setEditingId(null);
+    setForm({ title: "", body: "" });
+    setError("");
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!form.body.trim()) return;
+    setError("");
+    setSaving(true);
+    try {
+      if (editingId) {
+        const res = await api.patch(`/passages/${editingId}`, {
+          title: form.title.trim() || null,
+          body: form.body.trim(),
+        });
+        onPassagesChange(
+          passages.map((p) => (p.id === editingId ? res.data : p)),
+        );
+      } else {
+        const res = await api.post(`/quizzes/${quizId}/passages`, {
+          title: form.title.trim() || null,
+          body: form.body.trim(),
+        });
+        onPassagesChange([...passages, res.data]);
+      }
+      cancelForm();
+    } catch (err) {
+      setError(err.response?.data?.error ?? "Failed to save passage.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(id) {
+    if (
+      !window.confirm(
+        "Delete this passage? Questions linked to it will lose their passage reference.",
+      )
+    )
+      return;
+    try {
+      await api.delete(`/passages/${id}`);
+      onPassagesChange(passages.filter((p) => p.id !== id));
+    } catch (err) {
+      alert(err.response?.data?.error ?? "Failed to delete passage.");
+    }
+  }
+
+  // When quizId isn't saved yet, disable passage creation
+  const canCreate = Boolean(quizId);
+
+  return (
+    <div className="border border-accent-light/60 rounded-2xl overflow-hidden bg-white">
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 py-3.5 bg-white border-b border-gray-100">
+        <div className="flex items-center gap-2">
+          <BookOpen size={15} className="text-primary" />
+          <span className="text-sm font-bold text-gray-800">Passages</span>
+          {passages.length > 0 && (
+            <span className="text-xs font-semibold bg-primary/10 text-primary px-2 py-0.5 rounded-full">
+              {passages.length}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {canCreate && (
+            <button
+              type="button"
+              onClick={startNew}
+              className="flex items-center gap-1 text-xs font-medium text-primary hover:text-primary-dark bg-primary/10 hover:bg-primary/20 px-3 py-1.5 rounded-lg transition"
+            >
+              <Plus size={13} /> Add Passage
+            </button>
+          )}
+          {passages.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              className="text-gray-400 hover:text-gray-600 transition"
+            >
+              {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {!canCreate && (
+        <p className="text-xs text-gray-400 px-5 py-3">
+          Save the quiz details first before adding passages.
+        </p>
+      )}
+
+      {/* Passage list */}
+      {expanded && passages.length > 0 && (
+        <div className="divide-y divide-gray-50">
+          {passages.map((p) => (
+            <div key={p.id} className="px-5 py-3 flex items-start gap-3">
+              <FileText size={14} className="text-accent mt-0.5 shrink-0" />
+              <div className="flex-1 min-w-0">
+                {p.title && (
+                  <p className="text-xs font-bold text-gray-700 mb-0.5">
+                    {p.title}
+                  </p>
+                )}
+                <p className="text-xs text-gray-500 line-clamp-2 leading-relaxed">
+                  {p.body}
+                </p>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => startEdit(p)}
+                  className="p-1.5 rounded-lg text-primary hover:bg-primary/10 transition"
+                >
+                  <Pencil size={13} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDelete(p.id)}
+                  className="p-1.5 rounded-lg text-red-400 hover:bg-red-50 transition"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Passage form */}
+      {showForm && (
+        <div className="px-5 py-4 border-t border-gray-100 bg-tint/50 space-y-3">
+          <p className="text-xs font-semibold text-primary">
+            {editingId ? "Edit Passage" : "New Passage"}
+          </p>
+          {error && (
+            <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+              {error}
+            </p>
+          )}
+          <form onSubmit={handleSubmit} className="space-y-3">
+            <input
+              type="text"
+              placeholder="Passage title (optional, e.g. Passage 1)"
+              value={form.title}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, title: e.target.value }))
+              }
+              className="w-full px-3 py-2.5 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm"
+            />
+            <textarea
+              required
+              rows={5}
+              placeholder="Paste the passage text here…"
+              value={form.body}
+              onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))}
+              className="w-full px-3 py-2.5 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm resize-none"
+            />
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={cancelForm}
+                className="flex-1 border border-gray-200 text-gray-600 hover:bg-gray-50 font-semibold py-2.5 rounded-xl text-sm transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={saving || !form.body.trim()}
+                className="flex-1 bg-primary hover:bg-primary-dark disabled:opacity-60 text-white font-semibold py-2.5 rounded-xl text-sm transition flex items-center justify-center gap-1.5"
+              >
+                {saving && (
+                  <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                )}
+                {editingId ? "Update" : "Save Passage"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ─── Question Card ────────────────────────────────────────────────────────────
 
-function QuestionCard({ q, index, onDelete, onEdit }) {
+function QuestionCard({ q, index, passages, onDelete, onEdit }) {
+  const passage = passages.find((p) => p.id === q.passage_id);
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
       <div className="flex items-start justify-between gap-2 mb-2">
-        <p className="text-xs font-bold text-accent uppercase">Q{index + 1}</p>
+        <div className="flex items-center gap-1.5">
+          <p className="text-xs font-bold text-accent uppercase">
+            Q{index + 1}
+          </p>
+          {passage && (
+            <span className="flex items-center gap-1 text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-md font-medium">
+              <FileText size={9} />
+              {passage.title ?? "Passage"}
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-1">
           <button
             onClick={onEdit}
@@ -120,13 +355,6 @@ function QuestionCard({ q, index, onDelete, onEdit }) {
 }
 
 // ─── Manual Form ──────────────────────────────────────────────────────────────
-// Props:
-//   onAdd(q)          — called when adding a brand-new question
-//   onUpdate(q)       — called when saving edits to an existing question
-//   editingQuestion   — if set, the form is in edit mode (pre-filled with this question)
-//   onCancelEdit()    — called when user clicks Cancel while editing
-//   saving            — disables submit while quiz is saving
-//   formRef           — ref attached to the form wrapper for scroll-into-view
 
 function ManualForm({
   onAdd,
@@ -135,25 +363,26 @@ function ManualForm({
   onCancelEdit,
   saving,
   formRef,
+  passages,
 }) {
   const isEditMode = Boolean(editingQuestion);
 
-  // Build initial form state from an existing question (for edit) or blank
   function buildFormFromQuestion(q) {
     return {
       question_text: q.question_text ?? "",
       question_image_url: q.question_image_url ?? null,
-      question_image_preview: q.question_image_url ?? null, // show existing URL as preview
+      question_image_preview: q.question_image_url ?? null,
       _questionFile: null,
       options: (q.options ?? []).map((opt) => ({
         id: makeId(),
         text: opt.text ?? "",
         image_url: opt.image_url ?? null,
-        image_preview: opt.image_url ?? null, // show existing URL as preview
+        image_preview: opt.image_url ?? null,
         _file: null,
       })),
       correct_option_index: q.correct_option_index ?? 0,
       explanation: q.explanation ?? "",
+      passage_id: q.passage_id ?? null,
     };
   }
 
@@ -161,11 +390,10 @@ function ManualForm({
     isEditMode ? buildFormFromQuestion(editingQuestion) : blankForm(),
   );
   const [qDragOver, setQDragOver] = useState(false);
-  const [highlight, setHighlight] = useState(isEditMode); // ring flash on edit prefill
+  const [highlight, setHighlight] = useState(isEditMode);
   const qImgRef = useRef();
   const optImgRefs = useRef([]);
 
-  // When editingQuestion changes (new edit target), re-prefill the form
   useEffect(() => {
     if (editingQuestion) {
       setForm(buildFormFromQuestion(editingQuestion));
@@ -180,17 +408,12 @@ function ManualForm({
   }, [editingQuestion]);
 
   function applyQuestionFile(file) {
-    if (!file) return;
-    if (!file.type.startsWith("image/")) return;
+    if (!file || !file.type.startsWith("image/")) return;
     setForm((f) => ({
       ...f,
       _questionFile: file,
       question_image_preview: URL.createObjectURL(file),
     }));
-  }
-
-  function handleQuestionImage(e) {
-    applyQuestionFile(e.target.files[0]);
   }
 
   function clearQuestionImage(e) {
@@ -213,8 +436,7 @@ function ManualForm({
   }
 
   function handleOptionImage(idx, file) {
-    if (!file) return;
-    if (!file.type.startsWith("image/")) return;
+    if (!file || !file.type.startsWith("image/")) return;
     setForm((f) => {
       const opts = [...f.options];
       opts[idx] = {
@@ -283,15 +505,12 @@ function ManualForm({
   return (
     <div
       ref={formRef}
-      className={`rounded-xl transition-all duration-300 ${
-        highlight ? "ring-2 ring-primary ring-offset-2" : ""
-      }`}
+      className={`rounded-xl transition-all duration-300 ${highlight ? "ring-2 ring-primary ring-offset-2" : ""}`}
     >
       {isEditMode && (
         <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
           <p className="text-sm font-semibold text-primary flex items-center gap-1.5">
-            <Pencil size={14} />
-            Editing question
+            <Pencil size={14} /> Editing question
           </p>
           <button
             type="button"
@@ -303,6 +522,29 @@ function ManualForm({
         </div>
       )}
       <form onSubmit={handleSubmit} className="space-y-5">
+        {/* Passage selector */}
+        {passages.length > 0 && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Linked Passage (optional)
+            </label>
+            <select
+              value={form.passage_id ?? ""}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, passage_id: e.target.value || null }))
+              }
+              className="w-full px-4 py-3 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm bg-white"
+            >
+              <option value="">— No passage —</option>
+              {passages.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.title ?? `Passage (${p.body.slice(0, 40)}…)`}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
             Question Text
@@ -319,7 +561,7 @@ function ManualForm({
           />
         </div>
 
-        {/* Question Image — drag & drop zone */}
+        {/* Question Image */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Question Image (optional)
@@ -334,17 +576,15 @@ function ManualForm({
             onDrop={(e) => {
               e.preventDefault();
               setQDragOver(false);
-              const file = e.dataTransfer.files?.[0];
-              applyQuestionFile(file);
+              applyQuestionFile(e.dataTransfer.files?.[0]);
             }}
-            className={`relative flex items-center justify-center w-full rounded-xl border-2 border-dashed cursor-pointer transition-colors overflow-hidden
-              ${
-                qDragOver
-                  ? "border-primary bg-primary/5"
-                  : form.question_image_preview
-                    ? "border-gray-200 bg-gray-50"
-                    : "border-accent-light hover:border-primary/50 hover:bg-primary/5 bg-white"
-              }`}
+            className={`relative flex items-center justify-center w-full rounded-xl border-2 border-dashed cursor-pointer transition-colors overflow-hidden ${
+              qDragOver
+                ? "border-primary bg-primary/5"
+                : form.question_image_preview
+                  ? "border-gray-200 bg-gray-50"
+                  : "border-accent-light hover:border-primary/50 hover:bg-primary/5 bg-white"
+            }`}
             style={{
               minHeight: form.question_image_preview ? "auto" : "120px",
             }}
@@ -353,7 +593,7 @@ function ManualForm({
               ref={qImgRef}
               type="file"
               accept="image/*"
-              onChange={handleQuestionImage}
+              onChange={(e) => applyQuestionFile(e.target.files[0])}
               className="hidden"
             />
             {form.question_image_preview ? (
@@ -367,7 +607,6 @@ function ManualForm({
                   type="button"
                   onClick={clearQuestionImage}
                   className="absolute top-2 left-2 w-7 h-7 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-sm"
-                  title="Remove image"
                 >
                   <X size={14} />
                 </button>
@@ -465,7 +704,7 @@ function ManualForm({
                         className="hidden"
                       />
                     </label>
-                    {opt.image_preview ? (
+                    {opt.image_preview && (
                       <div className="relative">
                         <img
                           src={opt.image_preview}
@@ -476,12 +715,11 @@ function ManualForm({
                           type="button"
                           onClick={(e) => clearOptionImage(idx, e)}
                           className="absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-sm"
-                          title="Remove image"
                         >
                           <X size={11} />
                         </button>
                       </div>
-                    ) : null}
+                    )}
                   </div>
                 </div>
                 {form.options.length > 2 && (
@@ -497,8 +735,7 @@ function ManualForm({
             ))}
           </div>
           <p className="text-xs text-gray-400 mt-2">
-            Select the radio button next to the correct answer. You can add an
-            image for each option in place of (or alongside) the text.
+            Select the radio button next to the correct answer.
           </p>
         </div>
 
@@ -544,7 +781,7 @@ function ManualForm({
 
 function BulkImport({ onImport }) {
   const [jsonText, setJsonText] = useState("");
-  const [parsed, setParsed] = useState(null);
+  const [parsed, setParsed] = useState(null); // { passages, questions }
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
 
@@ -559,19 +796,15 @@ function BulkImport({ onImport }) {
     setError("");
     setParsed(null);
     try {
-      // Strip an optional fenced code block (```json ... ``` or plain ``` ... ```)
-      // wrapping the pasted text. If no fences are present, this is a no-op —
-      // trim() alone leaves plain JSON untouched.
       const cleaned = jsonText
         .trim()
         .replace(/^```[a-zA-Z]*\n?/, "")
         .replace(/```$/, "")
         .trim();
-
       const data = JSON.parse(cleaned);
       if (!data.questions || !Array.isArray(data.questions))
         throw new Error('Expected { "questions": [...] }');
-      setParsed(data.questions);
+      setParsed({ passages: data.passages ?? [], questions: data.questions });
     } catch (err) {
       setError(`Invalid JSON: ${err.message}`);
     }
@@ -579,8 +812,9 @@ function BulkImport({ onImport }) {
 
   function importAll() {
     if (!parsed) return;
-    onImport(
-      parsed.map((q) => ({
+    onImport({
+      passages: parsed.passages,
+      questions: parsed.questions.map((q) => ({
         id: makeId(),
         question_text: q.question_text || "",
         question_image_url: null,
@@ -595,8 +829,11 @@ function BulkImport({ onImport }) {
         })),
         correct_option_index: q.correct_option ?? 0,
         explanation: q.explanation || "",
+        // passage_ref is preserved as a string for display; resolved to UUID on save
+        _passage_ref: q.passage_ref ?? null,
+        passage_id: null,
       })),
-    );
+    });
     setJsonText("");
     setParsed(null);
   }
@@ -631,7 +868,7 @@ function BulkImport({ onImport }) {
           rows={8}
           value={jsonText}
           onChange={(e) => setJsonText(e.target.value)}
-          placeholder={'{\n  "questions": [...]\n}'}
+          placeholder={'{\n  "passages": [...],\n  "questions": [...]\n}'}
           className="w-full px-4 py-3 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-xs font-mono resize-none"
         />
       </div>
@@ -649,12 +886,29 @@ function BulkImport({ onImport }) {
       </button>
       {parsed && (
         <div className="space-y-3">
+          {parsed.passages.length > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-800">
+              <p className="font-semibold mb-1">
+                {parsed.passages.length} passage(s) detected:
+              </p>
+              {parsed.passages.map((p, i) => (
+                <p key={i} className="truncate">
+                  • {p.title ?? `Passage ${i + 1}`}: {p.body.slice(0, 60)}…
+                </p>
+              ))}
+            </div>
+          )}
           <p className="text-sm font-semibold text-gray-700">
-            {parsed.length} question(s) parsed:
+            {parsed.questions.length} question(s) parsed:
           </p>
           <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-            {parsed.map((q, idx) => (
+            {parsed.questions.map((q, idx) => (
               <div key={idx} className="bg-tint rounded-xl px-4 py-3 text-sm">
+                {q.passage_ref && (
+                  <p className="text-[10px] font-semibold text-amber-700 mb-0.5 flex items-center gap-1">
+                    <FileText size={9} /> {q.passage_ref}
+                  </p>
+                )}
                 <p className="font-medium text-gray-800 mb-1">
                   Q{idx + 1}: {q.question_text}
                 </p>
@@ -673,7 +927,7 @@ function BulkImport({ onImport }) {
             onClick={importAll}
             className="w-full bg-primary hover:bg-primary-dark text-white font-semibold py-3 rounded-xl text-sm transition"
           >
-            Import All ({parsed.length})
+            Import All ({parsed.questions.length})
           </button>
         </div>
       )}
@@ -693,19 +947,14 @@ function ConfirmClearOverlay({
   const total = savedCount + pendingCount;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-      {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/50 backdrop-blur-sm"
         onClick={!clearing ? onCancel : undefined}
       />
-      {/* Dialog */}
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-5">
-        {/* Icon */}
         <div className="flex items-center justify-center w-14 h-14 rounded-full bg-red-100 mx-auto">
           <TriangleAlert size={28} className="text-red-600" />
         </div>
-
-        {/* Copy */}
         <div className="text-center space-y-1.5">
           <h2 className="text-lg font-bold text-gray-900">
             Clear all questions?
@@ -728,8 +977,6 @@ function ConfirmClearOverlay({
             . This cannot be undone.
           </p>
         </div>
-
-        {/* Actions */}
         <div className="flex gap-3">
           <button
             onClick={onCancel}
@@ -808,35 +1055,36 @@ export default function QuizForm() {
     pass_mark: 50,
     question_limit: "",
     is_published: false,
-    // JAMB fields
     is_jamb: false,
     jamb_subject: JAMB_SUBJECTS[0],
     jamb_year: String(new Date().getFullYear()),
   });
-  const [questions, setQuestions] = useState([]);
-  const [existingQs, setExistingQs] = useState([]); // from DB when editing
+  const [passages, setPassages] = useState([]); // saved passages from DB
+  const [questions, setQuestions] = useState([]); // pending (not yet saved) questions
+  const [existingQs, setExistingQs] = useState([]); // saved questions from DB
   const [questionTab, setQuestionTab] = useState("manual");
   const [showQuestions, setShowQuestions] = useState(true);
 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [saveOk, setSaveOk] = useState(false);
-  const [editingQuestion, setEditingQuestion] = useState(null); // { question, source: 'existing'|'pending', idx }
+  const [editingQuestion, setEditingQuestion] = useState(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [clearing, setClearing] = useState(false);
   const manualFormRef = useRef(null);
 
-  // Load existing quiz when editing
+  // Current saved quizId — set once the quiz is first saved (for new quizzes)
+  const [savedQuizId, setSavedQuizId] = useState(quizId ?? null);
+
   useEffect(() => {
-    if (authLoading) return;
-    if (!user || !isAdmin) return;
-    if (!isEditing) return;
+    if (authLoading || !user || !isAdmin || !isEditing) return;
     let cancelled = false;
     async function load() {
       try {
-        const [quizRes, questionsRes] = await Promise.all([
+        const [quizRes, questionsRes, passagesRes] = await Promise.all([
           api.get(`/quizzes/${quizId}`),
           api.get(`/quizzes/${quizId}/questions`),
+          api.get(`/quizzes/${quizId}/passages`),
         ]);
         if (cancelled) return;
         const q = quizRes.data;
@@ -848,7 +1096,6 @@ export default function QuizForm() {
           pass_mark: q.pass_mark,
           question_limit: q.question_limit ?? "",
           is_published: q.is_published,
-          // JAMB fields
           is_jamb: q.is_jamb ?? false,
           jamb_subject: q.jamb_subject ?? JAMB_SUBJECTS[0],
           jamb_year: q.jamb_year
@@ -856,14 +1103,12 @@ export default function QuizForm() {
             : String(new Date().getFullYear()),
         });
         setExistingQs(questionsRes.data);
+        setPassages(passagesRes.data ?? []);
       } catch (err) {
         if (cancelled) return;
         const status = err?.response?.status;
-        if (status === 401 || status === 403) {
-          // interceptor handles session teardown + redirect
-        } else {
+        if (status !== 401 && status !== 403)
           console.error("QuizForm load error:", err);
-        }
       }
     }
     load();
@@ -882,8 +1127,6 @@ export default function QuizForm() {
 
     try {
       let savedQuiz;
-
-      // Compose the title: JAMB toggle → "JAMB [Subject] [Year]", else free-text
       const composedTitle = details.is_jamb
         ? `JAMB ${details.jamb_subject} ${details.jamb_year}`
         : details.title;
@@ -894,13 +1137,11 @@ export default function QuizForm() {
         price: Number(details.price),
         duration_minutes: Number(details.duration_minutes),
         pass_mark: Number(details.pass_mark),
-        // question_limit: empty string → null (no limit), otherwise a positive int
         question_limit:
           details.question_limit !== "" && details.question_limit !== null
             ? Number(details.question_limit)
             : null,
         is_published: details.is_published,
-        // JAMB metadata
         is_jamb: details.is_jamb,
         jamb_subject: details.is_jamb ? details.jamb_subject : null,
         jamb_year: details.is_jamb ? Number(details.jamb_year) : null,
@@ -912,19 +1153,25 @@ export default function QuizForm() {
       } else {
         const res = await api.post("/quizzes", payload);
         savedQuiz = res.data;
+        setSavedQuizId(savedQuiz.id);
       }
 
-      // Save any new questions (with image uploads)
+      // Save pending questions (with any bulk-import passage refs resolved)
       if (questions.length > 0) {
+        // Build a passage title→id map from DB passages
+        const passageTitleMap = {};
+        for (const p of passages) {
+          if (p.title) passageTitleMap[p.title] = p.id;
+        }
+
         for (const q of questions) {
-          // Upload images if present
           let questionImageUrl = null;
-          if (q._questionFile) {
+          if (q._questionFile)
             questionImageUrl = await uploadImage(
               q._questionFile,
               "question-images",
             );
-          }
+
           const options = await Promise.all(
             q.options.map(async (opt) => {
               let imageUrl = null;
@@ -933,27 +1180,35 @@ export default function QuizForm() {
               return { text: opt.text, image_url: imageUrl };
             }),
           );
+
+          // Resolve passage: either already set (manual) or from _passage_ref (bulk import)
+          let passageId = q.passage_id ?? null;
+          if (!passageId && q._passage_ref) {
+            passageId = passageTitleMap[q._passage_ref] ?? null;
+          }
+
           await api.post(`/quizzes/${savedQuiz.id}/questions`, {
             question_text: q.question_text,
             question_image_url: questionImageUrl,
             options,
             correct_option_index: q.correct_option_index,
             explanation: q.explanation || null,
+            passage_id: passageId,
           });
         }
         setQuestions([]);
+        // Refresh existing questions so the list stays current
+        const refreshed = await api.get(`/quizzes/${savedQuiz.id}/questions`);
+        setExistingQs(refreshed.data);
       }
 
       setSaveOk(true);
       setTimeout(() => setSaveOk(false), 3000);
-
       if (!isEditing)
         navigate(`/admin/quizzes/${savedQuiz.id}/edit`, { replace: true });
     } catch (err) {
       const status = err?.response?.status;
-      if (status === 401 || status === 403) {
-        // interceptor handles
-      } else {
+      if (status !== 401 && status !== 403) {
         setSaveError(err.response?.data?.error ?? "Failed to save quiz.");
       }
     } finally {
@@ -961,13 +1216,10 @@ export default function QuizForm() {
     }
   }
 
-  // ── Start editing a question ──────────────────────────────────────────────
-
   function startEditing(question, source, idx) {
-    setQuestionTab("manual"); // switch to manual tab
-    setShowQuestions(true); // make sure section is open
+    setQuestionTab("manual");
+    setShowQuestions(true);
     setEditingQuestion({ question, source, idx });
-    // Scroll form into view after state settles
     setTimeout(() => {
       manualFormRef.current?.scrollIntoView({
         behavior: "smooth",
@@ -976,14 +1228,11 @@ export default function QuizForm() {
     }, 60);
   }
 
-  // ── Update a question (edit save) ────────────────────────────────────────
-
   async function handleUpdateQuestion(updated) {
     if (!editingQuestion) return;
     const { source, idx } = editingQuestion;
 
     if (source === "pending") {
-      // Just update local state — no API call yet
       setQuestions((prev) =>
         prev.map((q, i) => (i === idx ? { ...q, ...updated } : q)),
       );
@@ -991,17 +1240,14 @@ export default function QuizForm() {
       return;
     }
 
-    // source === 'existing' — call the API
     setSaving(true);
     try {
-      // Upload any new images
       let questionImageUrl = updated.question_image_url ?? null;
-      if (updated._questionFile) {
+      if (updated._questionFile)
         questionImageUrl = await uploadImage(
           updated._questionFile,
           "question-images",
         );
-      }
 
       const options = await Promise.all(
         updated.options.map(async (opt) => {
@@ -1018,6 +1264,7 @@ export default function QuizForm() {
         options,
         correct_option_index: updated.correct_option_index,
         explanation: updated.explanation || null,
+        passage_id: updated.passage_id ?? null,
       });
 
       setExistingQs((prev) =>
@@ -1026,15 +1273,12 @@ export default function QuizForm() {
       setEditingQuestion(null);
     } catch (err) {
       const status = err?.response?.status;
-      if (status !== 401 && status !== 403) {
+      if (status !== 401 && status !== 403)
         setSaveError(err.response?.data?.error ?? "Failed to update question.");
-      }
     } finally {
       setSaving(false);
     }
   }
-
-  // ── Delete existing question ──────────────────────────────────────────────
 
   async function deleteExistingQuestion(id) {
     try {
@@ -1042,20 +1286,14 @@ export default function QuizForm() {
       setExistingQs((prev) => prev.filter((q) => q.id !== id));
     } catch (err) {
       const status = err?.response?.status;
-      if (status === 401 || status === 403) {
-        // interceptor handles
-      } else {
+      if (status !== 401 && status !== 403)
         console.error("Delete question error:", err);
-      }
     }
   }
-
-  // ── Clear all questions ───────────────────────────────────────────────────
 
   async function handleClearAll() {
     setClearing(true);
     try {
-      // Delete all saved questions from the DB in parallel
       await Promise.all(
         existingQs.map((q) => api.delete(`/questions/${q.id}`)),
       );
@@ -1065,12 +1303,70 @@ export default function QuizForm() {
       setShowClearConfirm(false);
     } catch (err) {
       const status = err?.response?.status;
-      if (status !== 401 && status !== 403) {
+      if (status !== 401 && status !== 403)
         setSaveError(err.response?.data?.error ?? "Failed to clear questions.");
-      }
       setShowClearConfirm(false);
     } finally {
       setClearing(false);
+    }
+  }
+
+  // Handle bulk import — passages come in with _passage_ref strings on questions.
+  // If the quiz is already saved we can send them straight to the import endpoint.
+  // If not, we queue them locally and resolve refs when the quiz is saved.
+  async function handleBulkImport({
+    passages: importedPassages,
+    questions: importedQuestions,
+  }) {
+    const currentQuizId = savedQuizId;
+
+    if (
+      currentQuizId &&
+      (importedPassages?.length > 0 || importedQuestions.length > 0)
+    ) {
+      // Quiz already exists — send to backend import endpoint which handles passage creation & ref resolution
+      try {
+        const res = await api.post(
+          `/quizzes/${currentQuizId}/questions/import`,
+          {
+            passages: importedPassages,
+            questions: importedQuestions.map((q) => ({
+              question_text: q.question_text,
+              question_image: q.question_image_url ?? null,
+              options: q.options.map((o) => ({
+                text: o.text,
+                image: o.image_url ?? null,
+              })),
+              correct_option: q.correct_option_index,
+              explanation: q.explanation || null,
+              passage_ref: q._passage_ref ?? null,
+            })),
+          },
+        );
+        // Refresh both passages and questions
+        const [qRes, pRes] = await Promise.all([
+          api.get(`/quizzes/${currentQuizId}/questions`),
+          api.get(`/quizzes/${currentQuizId}/passages`),
+        ]);
+        setExistingQs(qRes.data);
+        setPassages(pRes.data ?? []);
+        setSaveOk(true);
+        setTimeout(() => setSaveOk(false), 3000);
+      } catch (err) {
+        const status = err?.response?.status;
+        if (status !== 401 && status !== 403)
+          setSaveError(err.response?.data?.error ?? "Import failed.");
+      }
+    } else {
+      // Quiz not saved yet — queue locally. Passages will be sent on save.
+      // Store passage definitions on the question list to be processed during handleSave.
+      setQuestions((prev) => [
+        ...prev,
+        ...importedQuestions.map((q) => ({
+          ...q,
+          _importedPassages: importedPassages,
+        })),
+      ]);
     }
   }
 
@@ -1082,9 +1378,7 @@ export default function QuizForm() {
     );
   }
 
-  if (!user || !isAdmin) {
-    return <AdminGateCTA />;
-  }
+  if (!user || !isAdmin) return <AdminGateCTA />;
 
   return (
     <div className="min-h-screen bg-tint">
@@ -1097,6 +1391,7 @@ export default function QuizForm() {
             Fill in quiz details and add questions below
           </p>
         </div>
+
         {/* ── Section A: Quiz Details ── */}
         <section className="bg-white rounded-2xl shadow-sm p-6">
           <h2 className="font-bold text-gray-800 text-base mb-5">
@@ -1108,7 +1403,7 @@ export default function QuizForm() {
             </div>
           )}
           <form onSubmit={handleSave} className="space-y-4">
-            {/* ── JAMB Toggle ── */}
+            {/* JAMB Toggle */}
             <div className="flex items-center justify-between p-4 bg-tint rounded-xl">
               <div>
                 <p className="text-sm font-medium text-gray-800">JAMB Quiz</p>
@@ -1121,23 +1416,18 @@ export default function QuizForm() {
                 onClick={() =>
                   setDetails((d) => ({ ...d, is_jamb: !d.is_jamb }))
                 }
-                className={`w-12 h-6 rounded-full transition-colors relative ${
-                  details.is_jamb ? "bg-primary" : "bg-gray-300"
-                }`}
+                className={`w-12 h-6 rounded-full transition-colors relative ${details.is_jamb ? "bg-primary" : "bg-gray-300"}`}
               >
                 <span
-                  className={`absolute top-0.5 bottom-0.5 w-5 h-5 bg-white rounded-full shadow transition-all duration-200 ${
-                    details.is_jamb ? "left-[calc(100%-22px)]" : "left-0.5"
-                  }`}
+                  className={`absolute top-0.5 bottom-0.5 w-5 h-5 bg-white rounded-full shadow transition-all duration-200 ${details.is_jamb ? "left-[calc(100%-22px)]" : "left-0.5"}`}
                 />
               </button>
             </div>
 
-            {/* ── Title — free text OR JAMB subject + year ── */}
+            {/* Title */}
             {details.is_jamb ? (
               <div className="space-y-3">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {/* Subject picker */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Subject
@@ -1160,7 +1450,6 @@ export default function QuizForm() {
                       ))}
                     </select>
                   </div>
-                  {/* Year input */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Exam Year
@@ -1179,7 +1468,6 @@ export default function QuizForm() {
                     />
                   </div>
                 </div>
-                {/* Composed title preview */}
                 {details.jamb_subject && details.jamb_year && (
                   <div className="flex items-center gap-2 px-4 py-2.5 bg-primary/5 border border-primary/20 rounded-xl">
                     <span className="text-xs text-gray-500">
@@ -1208,6 +1496,7 @@ export default function QuizForm() {
                 />
               </div>
             )}
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Description
@@ -1222,6 +1511,7 @@ export default function QuizForm() {
                 className="w-full px-4 py-3 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm resize-none"
               />
             </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1291,10 +1581,11 @@ export default function QuizForm() {
                   className="w-full px-4 py-3 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm"
                 />
                 <p className="text-xs text-gray-400 mt-1">
-                  Leave blank to give students the full question.
+                  Leave blank to give students the full question bank.
                 </p>
               </div>
             </div>
+
             <div className="flex items-center justify-between p-4 bg-tint rounded-xl">
               <div>
                 <p className="text-sm font-medium text-gray-800">Published</p>
@@ -1314,6 +1605,7 @@ export default function QuizForm() {
                 />
               </button>
             </div>
+
             <div className="flex items-center gap-3">
               <button
                 type="submit"
@@ -1334,7 +1626,16 @@ export default function QuizForm() {
           </form>
         </section>
 
-        {/* ── Section B: Questions ── */}
+        {/* ── Section B: Passages ── */}
+        <section>
+          <PassageManager
+            quizId={savedQuizId}
+            passages={passages}
+            onPassagesChange={setPassages}
+          />
+        </section>
+
+        {/* ── Section C: Questions ── */}
         <section className="bg-tint rounded-2xl border border-accent-light/60 overflow-hidden">
           <div className="bg-white px-6 py-4 flex items-center justify-between border-b border-gray-100">
             <div>
@@ -1344,14 +1645,12 @@ export default function QuizForm() {
               </p>
             </div>
             <div className="flex items-center gap-2">
-              {/* Clear All button — only shown when there's something to clear */}
               {(existingQs.length > 0 || questions.length > 0) && (
                 <button
                   onClick={() => setShowClearConfirm(true)}
                   className="flex items-center gap-1.5 text-xs font-medium text-red-500 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-lg transition"
                 >
-                  <Trash2 size={13} />
-                  Clear All
+                  <Trash2 size={13} /> Clear All
                 </button>
               )}
               <button
@@ -1374,11 +1673,7 @@ export default function QuizForm() {
                   <button
                     key={tab}
                     onClick={() => setQuestionTab(tab)}
-                    className={`flex-1 py-2 rounded-lg text-sm font-semibold transition ${
-                      questionTab === tab
-                        ? "bg-primary text-white"
-                        : "text-gray-500 hover:text-gray-700"
-                    }`}
+                    className={`flex-1 py-2 rounded-lg text-sm font-semibold transition ${questionTab === tab ? "bg-primary text-white" : "text-gray-500 hover:text-gray-700"}`}
                   >
                     {tab === "manual" ? "Add Manually" : "Bulk JSON Import"}
                   </button>
@@ -1394,15 +1689,14 @@ export default function QuizForm() {
                     onCancelEdit={() => setEditingQuestion(null)}
                     saving={saving}
                     formRef={manualFormRef}
+                    passages={passages}
                   />
                 ) : (
-                  <BulkImport
-                    onImport={(qs) => setQuestions((prev) => [...prev, ...qs])}
-                  />
+                  <BulkImport onImport={handleBulkImport} />
                 )}
               </div>
 
-              {/* Pending (not yet saved) questions */}
+              {/* Pending questions */}
               {questions.length > 0 && (
                 <div>
                   <p className="text-sm font-semibold text-amber-600 mb-3">
@@ -1415,6 +1709,7 @@ export default function QuizForm() {
                         key={q.id}
                         q={q}
                         index={existingQs.length + idx}
+                        passages={passages}
                         onEdit={() => startEditing(q, "pending", idx)}
                         onDelete={() =>
                           setQuestions((prev) =>
@@ -1439,6 +1734,7 @@ export default function QuizForm() {
                         key={q.id}
                         q={q}
                         index={idx}
+                        passages={passages}
                         onEdit={() => startEditing(q, "existing", idx)}
                         onDelete={() => deleteExistingQuestion(q.id)}
                       />
@@ -1451,7 +1747,6 @@ export default function QuizForm() {
         </section>
       </div>
 
-      {/* ── Confirm Clear Overlay ── */}
       {showClearConfirm && (
         <ConfirmClearOverlay
           savedCount={existingQs.length}

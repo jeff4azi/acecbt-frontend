@@ -7,6 +7,7 @@ import {
   AlertCircle,
   LogIn,
   X,
+  BookOpen,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import api from "../../lib/api";
@@ -68,6 +69,7 @@ export default function QuizTaking() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [showQuit, setShowQuit] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [showPassage, setShowPassage] = useState(false);
 
   // Refs that are always current — safe to read from timer / submit callbacks
   const answersRef = useRef({});
@@ -413,6 +415,16 @@ export default function QuizTaking() {
           <p className="text-xs font-semibold text-accent uppercase tracking-wide mb-2">
             Question {currentIndex + 1} of {questions.length}
           </p>
+          {/* Passage button — shown only when this question has a passage */}
+          {question.passage && (
+            <button
+              onClick={() => setShowPassage(true)}
+              className="flex items-center gap-1.5 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100 px-3 py-1.5 rounded-xl transition mb-3"
+            >
+              <BookOpen size={13} />
+              Read Passage
+            </button>
+          )}
           <p className="text-gray-900 font-semibold text-base leading-relaxed">
             {question.question_text}
           </p>
@@ -657,6 +669,52 @@ export default function QuizTaking() {
                   Submit
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Passage slide-in panel */}
+      {showPassage && question.passage && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4">
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => setShowPassage(false)}
+          />
+          <div className="relative w-full sm:max-w-lg bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90dvh]">
+            {/* drag handle — mobile only */}
+            <div className="sm:hidden flex justify-center pt-3 pb-1 shrink-0">
+              <div className="w-10 h-1 rounded-full bg-gray-300" />
+            </div>
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-100 shrink-0">
+              <div className="flex items-center gap-2">
+                <BookOpen size={15} className="text-amber-600" />
+                <span className="font-bold text-gray-900 text-sm">
+                  {question.passage.title ?? "Passage"}
+                </span>
+              </div>
+              <button
+                onClick={() => setShowPassage(false)}
+                className="p-1.5 rounded-xl text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            {/* Body — scrollable */}
+            <div className="overflow-y-auto flex-1 px-5 py-4">
+              <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">
+                {question.passage.body}
+              </p>
+            </div>
+            {/* Footer */}
+            <div className="shrink-0 px-5 py-3 border-t border-gray-100 bg-gray-50">
+              <button
+                onClick={() => setShowPassage(false)}
+                className="w-full bg-primary hover:bg-primary-dark text-white font-semibold py-2.5 rounded-xl text-sm transition"
+              >
+                Back to Question
+              </button>
             </div>
           </div>
         </div>
