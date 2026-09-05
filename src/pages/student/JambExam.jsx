@@ -88,13 +88,22 @@ function QuestionNav({ questions, currentIndex, answers, onSelect }) {
 }
 
 // ── Session persistence ───────────────────────────────────────────────────────
+// Uses localStorage (not sessionStorage) so the session survives a full tab
+// close / PWA restart — which kills sessionStorage on some mobile browsers.
+// The session is explicitly cleared on submit or quit, so stale data can't
+// interfere with a future exam.
 
 function sessionKey(userId, paramHash) {
   return `jamb_session_${userId}_${paramHash}`;
 }
 
+// Store the exam params (quiz IDs + duration) separately so we can reconstruct
+// the hash even after React Router location.state is wiped by a full reload.
+function paramsKey(userId) {
+  return `jamb_params_${userId}`;
+}
+
 function hashParams(params) {
-  // A simple hash so resuming only works for the same selection
   return [
     params.english,
     params.s2,
@@ -106,7 +115,7 @@ function hashParams(params) {
 
 function loadSession(userId, paramHash) {
   try {
-    const raw = sessionStorage.getItem(sessionKey(userId, paramHash));
+    const raw = localStorage.getItem(sessionKey(userId, paramHash));
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
@@ -115,21 +124,37 @@ function loadSession(userId, paramHash) {
 
 function saveSession(userId, paramHash, data) {
   try {
-    sessionStorage.setItem(sessionKey(userId, paramHash), JSON.stringify(data));
+    localStorage.setItem(sessionKey(userId, paramHash), JSON.stringify(data));
   } catch {}
 }
 
 function clearSession(userId, paramHash) {
   try {
-    sessionStorage.removeItem(sessionKey(userId, paramHash));
+    localStorage.removeItem(sessionKey(userId, paramHash));
+    localStorage.removeItem(paramsKey(userId));
   } catch {}
+}
+
+function saveParams(userId, params) {
+  try {
+    localStorage.setItem(paramsKey(userId), JSON.stringify(params));
+  } catch {}
+}
+
+function loadSavedParams(userId) {
+  try {
+    const raw = localStorage.getItem(paramsKey(userId));
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function JambExam() {
   const navigate = useNavigate();
-  const { state: params } = useLocation();
+  const { state: locationParams } = useLocation();
   const { user, loading: authLoading } = useAuth();
 
   const [loading, setLoading] = useState(true);
@@ -150,6 +175,9 @@ export default function JambExam() {
   const [submitting, setSubmitting] = useState(false);
   const [showPassage, setShowPassage] = useState(false);
 
+  // Resolved params — either from location state or restored from localStorage
+  const [params, setParams] = useState(locationParams ?? null);
+
   const answersRef = useRef({});
   const timeLeftRef = useRef(null);
   const hasSubmitted = useRef(false);
@@ -166,8 +194,12 @@ export default function JambExam() {
   useEffect(() => {
     subjectDataRef.current = subjectData;
   }, [subjectData]);
+  // Keep paramsRef current whenever params resolves
+  useEffect(() => {
+    paramsRef.current = params;
+  }, [params]);
 
-  // Persist session on every answer/index change
+  // Persist session on every answer/navigation change
   useEffect(() => {
     if (!user || !params || timeLeft === null) return;
     const ph = hashParams(params);
@@ -178,8 +210,16 @@ export default function JambExam() {
       subjectData: existing.subjectData,
       answers,
       currentIndexPerSubject,
+      activeSubjectIdx,
     });
-  }, [answers, currentIndexPerSubject, user, params, timeLeft]);
+  }, [
+    answers,
+    currentIndexPerSubject,
+    activeSubjectIdx,
+    user,
+    params,
+    timeLeft,
+  ]);
 
   // ── Load questions ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -188,16 +228,35 @@ export default function JambExam() {
       setLoading(false);
       return;
     }
-    if (!params?.english || !params?.s2 || !params?.s3 || !params?.s4) {
-      setError("Invalid exam configuration. Please go back and try again.");
-      setLoading(false);
-      return;
-    }
 
     let cancelled = false;
 
     async function load() {
-      const ph = hashParams(params);
+      // Resolve params: prefer location state, fall back to localStorage
+      // (localStorage survives a full reload; location.state does not)
+      let resolvedParams = locationParams;
+      if (!resolvedParams?.english) {
+        resolvedParams = loadSavedParams(user.id);
+      }
+
+      if (
+        !resolvedParams?.english ||
+        !resolvedParams?.s2 ||
+        !resolvedParams?.s3 ||
+        !resolvedParams?.s4
+      ) {
+        setError("Invalid exam configuration. Please go back and try again.");
+        setLoading(false);
+        return;
+      }
+
+      // Sync resolved params into state + ref so the rest of the component works
+      if (!cancelled) {
+        setParams(resolvedParams);
+        paramsRef.current = resolvedParams;
+      }
+
+      const ph = hashParams(resolvedParams);
       const saved = loadSession(user.id, ph);
 
       try {
@@ -206,9 +265,9 @@ export default function JambExam() {
           Array.isArray(saved.subjectData) &&
           saved.subjectData.length === 4
         ) {
-          // Resume
+          // ── Resume ──────────────────────────────────────────────────────
           const elapsed = Math.floor((Date.now() - saved.startedAt) / 1000);
-          const remaining = params.duration - elapsed;
+          const remaining = resolvedParams.duration - elapsed;
 
           if (remaining <= 0) {
             // Time expired while away — restore and auto-submit
@@ -219,6 +278,7 @@ export default function JambExam() {
               setSubjectData(saved.subjectData);
               setAnswers(restoredAnswers);
               setCurrentIndexPerSubject(saved.currentIndexPerSubject ?? {});
+              setActiveSubjectIdx(saved.activeSubjectIdx ?? 0);
               setTimeLeft(0);
               setLoading(false);
             }
@@ -230,15 +290,16 @@ export default function JambExam() {
             setSubjectData(saved.subjectData);
             setAnswers(saved.answers ?? {});
             setCurrentIndexPerSubject(saved.currentIndexPerSubject ?? {});
+            setActiveSubjectIdx(saved.activeSubjectIdx ?? 0);
             setTimeLeft(remaining);
             setLoading(false);
           }
           return;
         }
 
-        // Fresh — fetch questions
+        // ── Fresh start — fetch questions ────────────────────────────────
         const res = await api.get(
-          `/jamb/questions?english=${params.english}&s2=${params.s2}&s3=${params.s3}&s4=${params.s4}`,
+          `/jamb/questions?english=${resolvedParams.english}&s2=${resolvedParams.s2}&s3=${resolvedParams.s3}&s4=${resolvedParams.s4}`,
         );
         if (cancelled) return;
 
@@ -275,15 +336,22 @@ export default function JambExam() {
         ];
 
         const startedAt = Date.now();
+
+        // Persist params to localStorage so a reload can recover them
+        saveParams(user.id, resolvedParams);
+
         saveSession(user.id, ph, {
           startedAt,
           subjectData: ordered,
           answers: {},
           currentIndexPerSubject: {},
+          activeSubjectIdx: 0,
         });
 
-        setSubjectData(ordered);
-        setTimeLeft(params.duration);
+        if (!cancelled) {
+          setSubjectData(ordered);
+          setTimeLeft(resolvedParams.duration);
+        }
       } catch (err) {
         if (cancelled) return;
         if (err?.response?.status === 401) return;
