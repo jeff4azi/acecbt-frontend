@@ -464,9 +464,9 @@ export default function Dashboard() {
           ) : (
             <div className="divide-y divide-gray-50">
               {data.recent_attempts.map((attempt, i) => {
-                const name = attempt.profiles?.full_name ?? "A student";
+                const name = attempt.full_name ?? "A student";
                 const initials = name.slice(0, 2).toUpperCase();
-                const quizTitle = attempt.quizzes?.title ?? "Unknown quiz";
+                const isJamb = attempt.type === "jamb";
                 return (
                   <div
                     key={attempt.id ?? i}
@@ -480,21 +480,28 @@ export default function Dashboard() {
                         <span className="font-semibold">{name}</span>
                         <span className="text-gray-400 font-normal"> · </span>
                         <span className="text-gray-500 text-xs">
-                          {quizTitle}
+                          {attempt.quiz_title}
                         </span>
                       </p>
-                      <p className="text-xs text-gray-400">
-                        {relativeTime(attempt.created_at)}
-                      </p>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <p className="text-xs text-gray-400">
+                          {relativeTime(attempt.created_at)}
+                        </p>
+                        {isJamb && (
+                          <span className="text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-md">
+                            JAMB
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <span
                       className={`text-xs font-bold px-2.5 py-1 rounded-full shrink-0 ${
-                        attempt.score >= 50
+                        attempt.score_value >= 50
                           ? "bg-green-50 text-green-700"
                           : "bg-red-50 text-red-600"
                       }`}
                     >
-                      {attempt.score}%
+                      {attempt.score_display}
                     </span>
                   </div>
                 );

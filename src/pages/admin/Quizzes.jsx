@@ -9,6 +9,7 @@ import {
   ShieldAlert,
   Search,
   X,
+  AlertTriangle,
 } from "lucide-react";
 import api from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
@@ -35,6 +36,88 @@ function DeleteModal({ quiz, onConfirm, onCancel }) {
           >
             Delete
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Delete All Attempts Overlay ──────────────────────────────────────────────
+
+function DeleteAttemptsModal({ onCancel, onConfirm, deleting }) {
+  const [scope, setScope] = useState("both"); // "regular" | "jamb" | "both"
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+        <div className="h-1.5 w-full bg-linear-to-r from-red-400 to-red-600" />
+        <div className="p-6 space-y-4">
+          <div className="flex items-center justify-center w-14 h-14 rounded-full bg-red-100 mx-auto">
+            <AlertTriangle size={28} className="text-red-600" />
+          </div>
+          <div className="text-center">
+            <h2 className="text-lg font-bold text-gray-900">
+              Delete all attempts?
+            </h2>
+            <p className="text-sm text-gray-500 mt-1">
+              This permanently wipes attempt records. Scores, leaderboard
+              entries and history will be gone. This cannot be undone.
+            </p>
+          </div>
+
+          {/* Scope selector */}
+          <div className="space-y-2">
+            {[
+              { value: "both", label: "Regular + JAMB attempts" },
+              { value: "regular", label: "Regular quiz attempts only" },
+              { value: "jamb", label: "JAMB exam attempts only" },
+            ].map((opt) => (
+              <label
+                key={opt.value}
+                className={`flex items-center gap-3 px-4 py-3 rounded-xl border-2 cursor-pointer transition ${
+                  scope === opt.value
+                    ? "border-red-400 bg-red-50"
+                    : "border-gray-200 hover:border-gray-300"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="scope"
+                  value={opt.value}
+                  checked={scope === opt.value}
+                  onChange={() => setScope(opt.value)}
+                  className="accent-red-500 shrink-0"
+                />
+                <span className="text-sm font-medium text-gray-700">
+                  {opt.label}
+                </span>
+              </label>
+            ))}
+          </div>
+
+          <div className="flex gap-3 pt-1">
+            <button
+              onClick={onCancel}
+              disabled={deleting}
+              className="flex-1 border border-gray-200 text-gray-700 font-semibold py-3 rounded-xl hover:bg-gray-50 text-sm transition disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => onConfirm(scope)}
+              disabled={deleting}
+              className="flex-1 bg-red-500 hover:bg-red-600 disabled:opacity-60 text-white font-bold py-3 rounded-xl text-sm transition flex items-center justify-center gap-2"
+            >
+              {deleting ? (
+                <>
+                  <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />{" "}
+                  Deleting…
+                </>
+              ) : (
+                "Delete"
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -80,6 +163,8 @@ export default function Quizzes() {
   const [query, setQuery] = useState("");
   const [toDelete, setToDelete] = useState(null);
   const [deleteError, setDeleteError] = useState("");
+  const [showDeleteAttempts, setShowDeleteAttempts] = useState(false);
+  const [deletingAttempts, setDeletingAttempts] = useState(false);
 
   useEffect(() => {
     if (authLoading) return;
@@ -126,6 +211,29 @@ export default function Quizzes() {
     }
   }
 
+  async function handleDeleteAttempts(scope) {
+    setDeletingAttempts(true);
+    try {
+      if (scope === "regular" || scope === "both") {
+        await api.delete("/dashboard/attempts");
+      }
+      if (scope === "jamb" || scope === "both") {
+        await api.delete("/dashboard/jamb-attempts");
+      }
+      setShowDeleteAttempts(false);
+    } catch (err) {
+      const status = err?.response?.status;
+      if (status !== 401 && status !== 403) {
+        setDeleteError(
+          err.response?.data?.error ?? "Could not delete attempts.",
+        );
+      }
+      setShowDeleteAttempts(false);
+    } finally {
+      setDeletingAttempts(false);
+    }
+  }
+
   if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-tint flex items-center justify-center">
@@ -157,12 +265,20 @@ export default function Quizzes() {
               {quizzes.length !== 1 ? "zes" : ""}
             </p>
           </div>
-          <Link
-            to="/admin/quizzes/new"
-            className="flex items-center gap-1.5 bg-primary hover:bg-primary-dark text-white font-semibold px-4 py-2.5 rounded-xl text-sm transition shadow-sm shrink-0"
-          >
-            <Plus size={16} /> New Quiz
-          </Link>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => setShowDeleteAttempts(true)}
+              className="flex items-center gap-1.5 text-xs font-medium text-red-500 hover:text-red-700 border border-red-200 hover:border-red-400 bg-red-50 hover:bg-red-100 px-3 py-2.5 rounded-xl transition"
+            >
+              <Trash2 size={13} /> Delete Attempts
+            </button>
+            <Link
+              to="/admin/quizzes/new"
+              className="flex items-center gap-1.5 bg-primary hover:bg-primary-dark text-white font-semibold px-4 py-2.5 rounded-xl text-sm transition shadow-sm"
+            >
+              <Plus size={16} /> New Quiz
+            </Link>
+          </div>
         </div>
 
         {/* Search bar */}
@@ -330,6 +446,14 @@ export default function Quizzes() {
           quiz={toDelete}
           onConfirm={confirmDelete}
           onCancel={() => setToDelete(null)}
+        />
+      )}
+
+      {showDeleteAttempts && (
+        <DeleteAttemptsModal
+          onCancel={() => setShowDeleteAttempts(false)}
+          onConfirm={handleDeleteAttempts}
+          deleting={deletingAttempts}
         />
       )}
     </div>
