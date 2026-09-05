@@ -8,6 +8,8 @@ import {
   LogIn,
   X,
   BookOpen,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import api from "../../lib/api";
@@ -18,6 +20,74 @@ function formatTime(seconds) {
     .padStart(2, "0");
   const s = (seconds % 60).toString().padStart(2, "0");
   return `${m}:${s}`;
+}
+
+// ── Collapsible question navigator ───────────────────────────────────────────
+function QuestionNav({ questions, currentIndex, answers, onSelect }) {
+  const total = questions.length;
+  const answered = Object.keys(answers).filter((id) =>
+    questions.some((q) => q.id === id),
+  ).length;
+
+  // Collapse by default when there are more than 20 questions
+  const [open, setOpen] = useState(total <= 20);
+
+  function handleSelect(i) {
+    onSelect(i);
+    // Auto-collapse after picking a question (only when there are many)
+    if (total > 20) setOpen(false);
+  }
+
+  return (
+    <div className="flex-1 min-w-0">
+      {/* Summary bar — always visible */}
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-2 w-full text-left"
+        aria-expanded={open}
+        aria-label="Toggle question navigator"
+      >
+        <span className="text-xs font-semibold text-gray-500">
+          Q{currentIndex + 1}/{total}
+        </span>
+        <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-primary rounded-full transition-all duration-300"
+            style={{ width: `${(answered / total) * 100}%` }}
+          />
+        </div>
+        <span className="text-[11px] text-gray-400 shrink-0">
+          {answered}/{total}
+        </span>
+        {open ? (
+          <ChevronUp size={14} className="text-gray-400 shrink-0" />
+        ) : (
+          <ChevronDown size={14} className="text-gray-400 shrink-0" />
+        )}
+      </button>
+
+      {/* Expandable grid */}
+      {open && (
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {questions.map((q, i) => (
+            <button
+              key={q.id}
+              onClick={() => handleSelect(i)}
+              className={`w-7 h-7 rounded-lg text-xs font-semibold transition ${
+                i === currentIndex
+                  ? "bg-primary text-white ring-2 ring-primary/30"
+                  : answers[q.id] !== undefined
+                    ? "bg-accent text-white"
+                    : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+              }`}
+            >
+              {i + 1}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ── Session persistence helpers ───────────────────────────────────────────────
@@ -371,24 +441,13 @@ export default function QuizTaking() {
   return (
     <div className="min-h-screen bg-tint flex flex-col">
       {/* Sticky header */}
-      <div className="sticky top-0 z-10 bg-white border-b border-gray-100 shadow-sm px-4 py-3 flex items-center justify-between gap-4">
-        <div className="flex flex-wrap gap-1.5 flex-1 min-w-0">
-          {questions.map((q, i) => (
-            <button
-              key={q.id}
-              onClick={() => setCurrentIndex(i)}
-              className={`w-7 h-7 rounded-lg text-xs font-semibold transition ${
-                i === currentIndex
-                  ? "bg-primary text-white"
-                  : answers[q.id] !== undefined
-                    ? "bg-accent text-white"
-                    : "bg-gray-100 text-gray-500 hover:bg-gray-200"
-              }`}
-            >
-              {i + 1}
-            </button>
-          ))}
-        </div>
+      <div className="sticky top-0 z-10 bg-white border-b border-gray-100 shadow-sm px-4 py-3 flex items-center gap-3">
+        <QuestionNav
+          questions={questions}
+          currentIndex={currentIndex}
+          answers={answers}
+          onSelect={setCurrentIndex}
+        />
         <div className="flex items-center gap-2 shrink-0">
           <div
             className={`font-mono font-bold text-lg px-3 py-1 rounded-xl ${

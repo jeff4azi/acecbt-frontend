@@ -8,6 +8,8 @@ import {
   LogIn,
   X,
   BookOpen,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import api from "../../lib/api";
@@ -20,6 +22,69 @@ function formatTime(seconds) {
   const s = (seconds % 60).toString().padStart(2, "0");
   if (h > 0) return `${h}:${m}:${s}`;
   return `${m}:${s}`;
+}
+
+// ── Collapsible question navigator ───────────────────────────────────────────
+function QuestionNav({ questions, currentIndex, answers, onSelect }) {
+  const total = questions.length;
+  const answered = Object.keys(answers).filter((id) =>
+    questions.some((q) => q.id === id),
+  ).length;
+
+  const [open, setOpen] = useState(total <= 20);
+
+  function handleSelect(i) {
+    onSelect(i);
+    if (total > 20) setOpen(false);
+  }
+
+  return (
+    <div className="flex-1 min-w-0">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-2 w-full text-left"
+        aria-expanded={open}
+        aria-label="Toggle question navigator"
+      >
+        <span className="text-xs font-semibold text-gray-500">
+          Q{currentIndex + 1}/{total}
+        </span>
+        <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-primary rounded-full transition-all duration-300"
+            style={{ width: `${(answered / total) * 100}%` }}
+          />
+        </div>
+        <span className="text-[11px] text-gray-400 shrink-0">
+          {answered}/{total}
+        </span>
+        {open ? (
+          <ChevronUp size={14} className="text-gray-400 shrink-0" />
+        ) : (
+          <ChevronDown size={14} className="text-gray-400 shrink-0" />
+        )}
+      </button>
+      {open && (
+        <div className="flex flex-wrap gap-1 mt-2">
+          {questions.map((q, i) => (
+            <button
+              key={q.id}
+              onClick={() => handleSelect(i)}
+              className={`w-6 h-6 rounded-md text-[10px] font-bold transition ${
+                i === currentIndex
+                  ? "bg-primary text-white ring-2 ring-primary/30"
+                  : answers[q.id] !== undefined
+                    ? "bg-accent text-white"
+                    : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+              }`}
+            >
+              {i + 1}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ── Session persistence ───────────────────────────────────────────────────────
@@ -497,23 +562,13 @@ export default function JambExam() {
 
         {/* Question navigator + timer */}
         <div className="px-3 py-2 flex items-center gap-3">
-          <div className="flex flex-wrap gap-1 flex-1 min-w-0">
-            {activeSub.questions.map((q, i) => (
-              <button
-                key={q.id}
-                onClick={() => setCurrentIdx(i)}
-                className={`w-6 h-6 rounded-md text-[10px] font-bold transition ${
-                  i === currentIdx
-                    ? "bg-primary text-white"
-                    : answers[q.id] !== undefined
-                      ? "bg-accent text-white"
-                      : "bg-gray-100 text-gray-500 hover:bg-gray-200"
-                }`}
-              >
-                {i + 1}
-              </button>
-            ))}
-          </div>
+          <QuestionNav
+            key={activeSub.key}
+            questions={activeSub.questions}
+            currentIndex={currentIdx}
+            answers={answers}
+            onSelect={setCurrentIdx}
+          />
           <div className="flex items-center gap-2 shrink-0">
             <div
               className={`font-mono font-bold text-base px-3 py-1 rounded-xl ${
