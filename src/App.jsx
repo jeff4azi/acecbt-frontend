@@ -18,6 +18,10 @@ import Result from "./pages/student/Result";
 import Leaderboard from "./pages/student/Leaderboard";
 import History from "./pages/student/History";
 import Profile from "./pages/student/Profile";
+import JambSubjectPicker from "./pages/student/JambSubjectPicker";
+import JambExam from "./pages/student/JambExam";
+import JambResult from "./pages/student/JambResult";
+import JambLeaderboard from "./pages/student/JambLeaderboard";
 
 // Admin pages
 import AdminDashboard from "./pages/admin/Dashboard";
@@ -42,6 +46,9 @@ export default function App() {
           {/* Quiz taking — full-screen, no nav chrome */}
           <Route path="/quiz/:quizId/take" element={<QuizTaking />} />
 
+          {/* JAMB exam — full-screen, no nav chrome */}
+          <Route path="/jamb/take" element={<JambExam />} />
+
           {/* Student app — AdminRedirect sends admins to /admin unless they
               explicitly chose to browse the site via the "View Site" button */}
           <Route
@@ -58,6 +65,9 @@ export default function App() {
             <Route path="/quiz/:quizId/leaderboard" element={<Leaderboard />} />
             <Route path="/history" element={<History />} />
             <Route path="/profile" element={<Profile />} />
+            <Route path="/jamb" element={<JambSubjectPicker />} />
+            <Route path="/jamb/result" element={<JambResult />} />
+            <Route path="/jamb/leaderboard" element={<JambLeaderboard />} />
           </Route>
 
           {/* Admin app */}

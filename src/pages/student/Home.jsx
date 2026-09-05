@@ -11,6 +11,8 @@ import {
   X,
   TrendingUp,
   Award,
+  GraduationCap,
+  Trophy,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import api from "../../lib/api";
@@ -446,6 +448,38 @@ export default function Home() {
               ))}
             </div>
           )}
+        </section>
+
+        {/* ── JAMB Exam Mode Banner ─────────────────────────────────── */}
+        <section>
+          <Link
+            to="/jamb"
+            className="group flex items-center justify-between gap-3 bg-white rounded-2xl px-4 py-3.5 shadow-sm border border-gray-100 hover:border-primary/30 hover:shadow-md transition-all active:scale-[0.99]"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                <GraduationCap size={18} className="text-primary" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-gray-900">
+                  JAMB Exam Mode
+                </p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  4 subjects · 180 questions · Score /400
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="hidden sm:flex items-center gap-1 text-xs text-gray-400">
+                <Trophy size={11} />
+                Leaderboard
+              </span>
+              <ChevronRight
+                size={16}
+                className="text-gray-300 group-hover:text-primary group-hover:translate-x-0.5 transition-all"
+              />
+            </div>
+          </Link>
         </section>
 
         {/* ── Continue / Recent ──────────────────────────────────────── */}
