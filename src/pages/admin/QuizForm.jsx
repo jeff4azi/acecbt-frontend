@@ -16,6 +16,7 @@ import {
 import api from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
 import { uploadImage } from "../../lib/uploadImage";
+import { JAMB_SUBJECTS } from "../../lib/jambSubjects";
 
 // ─── AI Prompt ────────────────────────────────────────────────────────────────
 const AI_PROMPT = `You are formatting multiple-choice quiz questions into a strict JSON format for import into a CBT platform.
@@ -807,6 +808,10 @@ export default function QuizForm() {
     pass_mark: 50,
     question_limit: "",
     is_published: false,
+    // JAMB fields
+    is_jamb: false,
+    jamb_subject: JAMB_SUBJECTS[0],
+    jamb_year: String(new Date().getFullYear()),
   });
   const [questions, setQuestions] = useState([]);
   const [existingQs, setExistingQs] = useState([]); // from DB when editing
@@ -843,6 +848,12 @@ export default function QuizForm() {
           pass_mark: q.pass_mark,
           question_limit: q.question_limit ?? "",
           is_published: q.is_published,
+          // JAMB fields
+          is_jamb: q.is_jamb ?? false,
+          jamb_subject: q.jamb_subject ?? JAMB_SUBJECTS[0],
+          jamb_year: q.jamb_year
+            ? String(q.jamb_year)
+            : String(new Date().getFullYear()),
         });
         setExistingQs(questionsRes.data);
       } catch (err) {
@@ -871,8 +882,14 @@ export default function QuizForm() {
 
     try {
       let savedQuiz;
+
+      // Compose the title: JAMB toggle → "JAMB [Subject] [Year]", else free-text
+      const composedTitle = details.is_jamb
+        ? `JAMB ${details.jamb_subject} ${details.jamb_year}`
+        : details.title;
+
       const payload = {
-        title: details.title,
+        title: composedTitle,
         description: details.description,
         price: Number(details.price),
         duration_minutes: Number(details.duration_minutes),
@@ -883,6 +900,10 @@ export default function QuizForm() {
             ? Number(details.question_limit)
             : null,
         is_published: details.is_published,
+        // JAMB metadata
+        is_jamb: details.is_jamb,
+        jamb_subject: details.is_jamb ? details.jamb_subject : null,
+        jamb_year: details.is_jamb ? Number(details.jamb_year) : null,
       };
 
       if (isEditing) {
@@ -1087,21 +1108,106 @@ export default function QuizForm() {
             </div>
           )}
           <form onSubmit={handleSave} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Title
-              </label>
-              <input
-                type="text"
-                required
-                value={details.title}
-                onChange={(e) =>
-                  setDetails((d) => ({ ...d, title: e.target.value }))
+            {/* ── JAMB Toggle ── */}
+            <div className="flex items-center justify-between p-4 bg-tint rounded-xl">
+              <div>
+                <p className="text-sm font-medium text-gray-800">JAMB Quiz</p>
+                <p className="text-xs text-gray-500">
+                  Auto-format title as "JAMB [Subject] [Year]"
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  setDetails((d) => ({ ...d, is_jamb: !d.is_jamb }))
                 }
-                placeholder="e.g. WAEC Mathematics 2024"
-                className="w-full px-4 py-3 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm"
-              />
+                className={`w-12 h-6 rounded-full transition-colors relative ${
+                  details.is_jamb ? "bg-primary" : "bg-gray-300"
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 bottom-0.5 w-5 h-5 bg-white rounded-full shadow transition-all duration-200 ${
+                    details.is_jamb ? "left-[calc(100%-22px)]" : "left-0.5"
+                  }`}
+                />
+              </button>
             </div>
+
+            {/* ── Title — free text OR JAMB subject + year ── */}
+            {details.is_jamb ? (
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Subject picker */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Subject
+                    </label>
+                    <select
+                      required
+                      value={details.jamb_subject}
+                      onChange={(e) =>
+                        setDetails((d) => ({
+                          ...d,
+                          jamb_subject: e.target.value,
+                        }))
+                      }
+                      className="w-full px-4 py-3 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm bg-white"
+                    >
+                      {JAMB_SUBJECTS.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {/* Year input */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Exam Year
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      min={1990}
+                      max={2099}
+                      value={details.jamb_year}
+                      onChange={(e) =>
+                        setDetails((d) => ({ ...d, jamb_year: e.target.value }))
+                      }
+                      placeholder="e.g. 2024"
+                      className="w-full px-4 py-3 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm"
+                    />
+                  </div>
+                </div>
+                {/* Composed title preview */}
+                {details.jamb_subject && details.jamb_year && (
+                  <div className="flex items-center gap-2 px-4 py-2.5 bg-primary/5 border border-primary/20 rounded-xl">
+                    <span className="text-xs text-gray-500">
+                      Title will be:
+                    </span>
+                    <span className="text-sm font-semibold text-primary">
+                      JAMB {details.jamb_subject} {details.jamb_year}
+                    </span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Title
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={details.title}
+                  onChange={(e) =>
+                    setDetails((d) => ({ ...d, title: e.target.value }))
+                  }
+                  placeholder="e.g. WAEC Mathematics 2024"
+                  className="w-full px-4 py-3 rounded-xl border border-accent-light focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-sm"
+                />
+              </div>
+            )}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Description
