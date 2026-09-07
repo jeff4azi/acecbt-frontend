@@ -1068,6 +1068,7 @@ export default function QuizForm() {
     is_jamb: false,
     jamb_subject: JAMB_SUBJECTS[0],
     jamb_year: String(new Date().getFullYear()),
+    shuffle_questions: false,
   });
   const [passages, setPassages] = useState([]); // saved passages from DB
   const [questions, setQuestions] = useState([]); // pending (not yet saved) questions
@@ -1111,6 +1112,7 @@ export default function QuizForm() {
           jamb_year: q.jamb_year
             ? String(q.jamb_year)
             : String(new Date().getFullYear()),
+          shuffle_questions: q.shuffle_questions ?? false,
         });
         setExistingQs(questionsRes.data);
         setPassages(passagesRes.data ?? []);
@@ -1155,6 +1157,8 @@ export default function QuizForm() {
         is_jamb: details.is_jamb,
         jamb_subject: details.is_jamb ? details.jamb_subject : null,
         jamb_year: details.is_jamb ? Number(details.jamb_year) : null,
+        // shuffle_questions only applies to normal quizzes; JAMB is always ordered
+        shuffle_questions: details.is_jamb ? false : details.shuffle_questions,
       };
 
       if (isEditing) {
@@ -1586,6 +1590,34 @@ export default function QuizForm() {
                 </p>
               </div>
             </div>
+
+            {/* Shuffle toggle — only shown for normal (non-JAMB) quizzes */}
+            {!details.is_jamb && (
+              <div className="flex items-center justify-between p-4 bg-tint rounded-xl">
+                <div>
+                  <p className="text-sm font-medium text-gray-800">
+                    Shuffle Questions
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    Randomise question order for each attempt
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDetails((d) => ({
+                      ...d,
+                      shuffle_questions: !d.shuffle_questions,
+                    }))
+                  }
+                  className={`w-12 h-6 rounded-full transition-colors relative ${details.shuffle_questions ? "bg-primary" : "bg-gray-300"}`}
+                >
+                  <span
+                    className={`absolute top-0.5 bottom-0.5 w-5 h-5 bg-white rounded-full shadow transition-all duration-200 ${details.shuffle_questions ? "left-[calc(100%-22px)]" : "left-0.5"}`}
+                  />
+                </button>
+              </div>
+            )}
 
             <div className="flex items-center justify-between p-4 bg-tint rounded-xl">
               <div>
