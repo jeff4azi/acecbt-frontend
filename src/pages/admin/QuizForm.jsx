@@ -14,6 +14,7 @@ import {
   TriangleAlert,
   FileText,
   BookOpen,
+  Download,
 } from "lucide-react";
 import api from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
@@ -1375,6 +1376,47 @@ export default function QuizForm() {
     }
   }
 
+  function exportQuestions() {
+    const allQuestions = [...existingQs, ...questions];
+    if (allQuestions.length === 0) return;
+
+    // Build a passage id→object map for reference resolution
+    const passageMap = Object.fromEntries(passages.map((p) => [p.id, p]));
+
+    const exportData = {
+      passages: passages.map((p) => ({
+        title: p.title,
+        body: p.body,
+      })),
+      questions: allQuestions.map((q) => ({
+        question_text: q.question_text,
+        question_image: q.question_image_url ?? null,
+        passage_ref: q.passage_id
+          ? (passageMap[q.passage_id]?.title ?? null)
+          : null,
+        options: (q.options ?? []).map((o) => ({
+          text: o.text,
+          image: o.image_url ?? null,
+        })),
+        correct_option: q.correct_option_index,
+        explanation: q.explanation ?? null,
+      })),
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const quizTitle = details.is_jamb
+      ? `JAMB_${details.jamb_subject}_${details.jamb_year}`
+      : details.title || "quiz";
+    a.href = url;
+    a.download = `${quizTitle.replace(/\s+/g, "_")}_questions.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   if (authLoading) {
     return (
       <div className="min-h-screen bg-tint flex items-center justify-center">
@@ -1679,12 +1721,20 @@ export default function QuizForm() {
             </div>
             <div className="flex items-center gap-2">
               {(existingQs.length > 0 || questions.length > 0) && (
-                <button
-                  onClick={() => setShowClearConfirm(true)}
-                  className="flex items-center gap-1.5 text-xs font-medium text-red-500 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-lg transition"
-                >
-                  <Trash2 size={13} /> Clear All
-                </button>
+                <>
+                  <button
+                    onClick={exportQuestions}
+                    className="flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary-dark hover:bg-primary/10 px-3 py-1.5 rounded-lg transition"
+                  >
+                    <Download size={13} /> Export JSON
+                  </button>
+                  <button
+                    onClick={() => setShowClearConfirm(true)}
+                    className="flex items-center gap-1.5 text-xs font-medium text-red-500 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-lg transition"
+                  >
+                    <Trash2 size={13} /> Clear All
+                  </button>
+                </>
               )}
               <button
                 onClick={() => setShowQuestions((v) => !v)}
